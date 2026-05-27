@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any, Callable, Sequence
 
@@ -40,9 +41,11 @@ def _get_model(model: str | Any | None = None) -> Any:
     if isinstance(model, str):
         # DeepSeek uses OpenAI-compatible API
         if "deepseek" in model.lower():
+            api_key = os.environ.get("DEEPSEEK_API_KEY", "not-set")
             return ChatOpenAI(
                 model=model,
                 base_url="https://api.deepseek.com/v1",
+                api_key=api_key,
             )
         # Default to ChatOpenAI for other models
         return ChatOpenAI(model=model)
