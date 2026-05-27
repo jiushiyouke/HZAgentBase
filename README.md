@@ -14,7 +14,7 @@
 - **提示词管理** — 目录式提示词加载（base.md + rules/*.md），支持共享规则
 - **多 Agent 编排** — Coordinator / Worker 模式，每个 worker 独立提示词和工具集
 - **多用户隔离** — 基于 LangGraph thread_id 的状态隔离，同一 agent 实例可并发服务多个用户
-- **可插拔后端** — 本地 / 沙箱 / 远程执行环境
+- **可插拔后端** — 由 Deep Agents 提供，支持本地 / 沙箱 / 远程执行环境
 - **CLI 工具** — 命令行交互界面
 
 ## 安装
@@ -282,6 +282,26 @@ class BusinessContextMiddleware(AgentMiddleware):
 
 agent = create_agent(middleware=[BusinessContextMiddleware("当前环境: 生产")])
 ```
+
+## 后端（Backend）
+
+后端由 Deep Agents 提供，决定 Agent 工具（bash、文件读写等）在哪里执行。HZAgentBase 直接透传，不做额外封装。
+
+| 后端 | 说明 |
+|------|------|
+| `LocalBackend` | 本地机器直接执行（默认） |
+| `SandboxBackend` | Docker / VM 沙箱内执行，适合生产环境和多租户隔离 |
+| `RemoteBackend` | 远程服务器执行，适合云函数和 K8s Job |
+
+```python
+from hz_agent_base import create_agent
+from deepagents.backends import LocalShellBackend
+
+# 指定后端
+agent = create_agent(backend=LocalShellBackend())
+```
+
+不传 `backend` 参数时使用 Deep Agents 的默认后端。
 
 ## CLI 工具
 

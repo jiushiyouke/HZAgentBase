@@ -19,6 +19,7 @@ from .middleware import AgentMiddleware
 from .knowledge import Retriever, RetrievalResult
 from .coordinator.worker import WorkerConfig
 from .prompts.manager import PromptManager
+from .backends import StateBackend, StoreBackend
 
 __version__ = "0.1.0"
 
@@ -34,4 +35,6 @@ __all__ = [
     "RetrievalResult",
     "WorkerConfig",
     "PromptManager",
+    "StateBackend",
+    "StoreBackend",
 ]
