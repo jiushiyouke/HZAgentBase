@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hz-agent-base"
+version = "0.1.0"
+description = "Reusable Agent Harness infrastructure library"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.12"
+authors = [
+    { name = "HZ Team" },
+]
+
+dependencies = [
+    "deepagents>=0.6.4,<0.7.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langgraph>=0.4.0",
+    "pydantic>=2.0",
+    "click>=8.0",
+    "rich>=13.0",
+    "openai>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+hz-agent = "hz_agent_base.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hz_agent_base"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
