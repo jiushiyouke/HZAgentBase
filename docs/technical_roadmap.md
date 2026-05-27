@@ -374,10 +374,15 @@ agent = create_agent(
 - [x] WorkerConfig 新增 prompt_dir 字段（每个 worker 独立提示词目录）
 - [x] 单元测试（16 个用例）
 
-### 阶段八：CLI 和示例（待开始）
-- [ ] Click + Rich CLI
-- [ ] 基础交互式对话
-- [ ] 示例项目
+### 阶段八：CLI 和示例 ✅
+- [x] 更新 CLI：支持 --rules、--prompt、--filesystem 参数
+- [x] CLI 使用 run_agent() 替代直接 invoke
+- [x] 新增 version 子命令
+- [x] 更新 basic_agent.py、custom_permissions.py、multi_user.py
+- [x] 新增 with_prompts.py（提示词管理示例）
+- [x] 新增 with_filesystem.py（文件审计示例）
+- [x] 新增 server_integration.py（FastAPI 服务器集成示例）
+- [x] 更新 multi_agent.py、with_hooks.py
 
 ### 阶段八：文档和发布（待开始）
 - [ ] API 文档
@@ -481,7 +486,13 @@ HZAgentBase/
 │   ├── test_coordinator.py
 │   └── test_prompts.py
 └── examples/
-    ├── basic_agent.py
-    ├── custom_middleware.py
-    └── multi_agent.py
+    ├── basic_agent.py          # 最简用法
+    ├── custom_permissions.py   # 权限控制
+    ├── multi_user.py           # 多用户隔离
+    ├── multi_agent.py          # 多 Agent 编排
+    ├── with_hooks.py           # Hook 系统
+    ├── with_memory.py          # 记忆系统
+    ├── with_prompts.py         # 提示词管理
+    ├── with_filesystem.py      # 文件审计
+    └── server_integration.py   # FastAPI 服务器集成
 ```

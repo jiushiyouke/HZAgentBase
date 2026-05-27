@@ -1,4 +1,4 @@
-"""示例：使用 Hook 系统监控工具调用。"""
+"""示例：使用 Hook 系统监控生命周期事件。"""
 
 from hz_agent_base import (
     create_agent,
@@ -11,7 +11,7 @@ from hz_agent_base.hooks import CommandHookDefinition
 # 创建 Hook 注册表
 registry = HookRegistry()
 
-# 注册 Hook：记录所有工具调用
+# 注册 Hook：记录所有工具调用到日志文件
 registry.register(CommandHookDefinition(
     event=HookEvent.POST_TOOL_USE,
     command='echo "Tool used: $HZ_HOOK_PAYLOAD" >> tool_usage.log',
@@ -22,11 +22,7 @@ registry.register(CommandHookDefinition(
 agent = create_agent(hooks=registry)
 
 # 运行
-result = run_agent(
-    agent,
-    "显示当前目录内容",
-    thread_id="demo",
-)
+result = run_agent(agent, "显示当前目录内容", thread_id="demo")
 
 for msg in result.get("messages", []):
     if hasattr(msg, "type") and msg.type == "ai":
