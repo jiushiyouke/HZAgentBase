@@ -11,7 +11,9 @@ class WorkerConfig:
 
     Attributes:
         name: Unique name for this worker.
-        prompt: System prompt for the worker.
+        prompt: System prompt string (直接传入提示词文本)。
+        prompt_dir: 提示词目录路径（自动加载 base.md + rules/）。
+                   和 prompt 二选一，同时存在时 prompt_dir 优先。
         tools: List of tool names this worker can use.
         model: LLM model to use (defaults to coordinator's model).
         team: Team name for grouping workers.
@@ -20,6 +22,7 @@ class WorkerConfig:
 
     name: str
     prompt: str = ""
+    prompt_dir: str = ""
     tools: list[str] = field(default_factory=list)
     model: str | None = None
     team: str = "default"

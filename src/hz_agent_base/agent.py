@@ -20,6 +20,7 @@ from .middleware.filesystem import FilesystemMiddleware
 from .knowledge.protocol import Retriever
 from .coordinator.worker import WorkerConfig
 from .coordinator.coordinator import CoordinatorMiddleware
+from .prompts.manager import load_prompt
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
 
@@ -60,6 +61,7 @@ def create_agent(
     tools: Sequence[Any] | None = None,
     *,
     system_prompt: str | None = None,
+    rules: list[str] | None = None,
     permissions: PermissionSettings | None = None,
     hooks: HookRegistry | None = None,
     memory_path: str | None = None,
@@ -76,7 +78,12 @@ def create_agent(
     Args:
         model: LLM model name or instance. Defaults to deepseek-v4-flash.
         tools: Custom tools to register.
-        system_prompt: Custom system prompt.
+        system_prompt: Custom system prompt. 支持三种形式：
+            - 字符串：直接作为提示词文本
+            - 文件路径（.md）：从文件加载
+            - 目录路径：从目录加载 base.md + rules/
+        rules: 共享规则目录列表。目录下的 .md 文件自动加载，
+               拼接到 system_prompt 之后。所有 agent（含 workers）共享。
         permissions: Permission settings. If None, uses DEFAULT mode.
         hooks: Hook registry for lifecycle events.
         memory_path: Path to memory directory for persistent knowledge.
@@ -97,6 +104,9 @@ def create_agent(
         Compiled LangGraph agent ready to run.
         Thread-safe: the same instance can serve multiple users concurrently.
     """
+    # 加载提示词（支持字符串、文件路径、目录路径）
+    resolved_prompt = load_prompt(system_prompt, shared_rules=rules)
+
     harness_middleware: list[AgentMiddleware] = []
 
     # 1. Permission middleware (first - gates all tool calls)
@@ -128,7 +138,7 @@ def create_agent(
     # 7. Coordinator middleware (multi-agent orchestration)
     coordinator = None
     if workers:
-        coordinator = CoordinatorMiddleware(workers)
+        coordinator = CoordinatorMiddleware(workers, shared_rules=rules)
         harness_middleware.append(coordinator)
 
     # Resolve model
@@ -138,7 +148,7 @@ def create_agent(
     agent_kwargs: dict[str, Any] = {
         "model": resolved_model,
         "tools": tools,
-        "system_prompt": system_prompt,
+        "system_prompt": resolved_prompt,
         "middleware": harness_middleware,
         "backend": backend,
     }

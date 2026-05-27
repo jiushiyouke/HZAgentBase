@@ -18,6 +18,7 @@ from .hooks import HookRegistry, HookEvent
 from .middleware import AgentMiddleware
 from .knowledge import Retriever, RetrievalResult
 from .coordinator.worker import WorkerConfig
+from .prompts.manager import PromptManager
 
 __version__ = "0.1.0"
 
@@ -32,4 +33,5 @@ __all__ = [
     "Retriever",
     "RetrievalResult",
     "WorkerConfig",
+    "PromptManager",
 ]

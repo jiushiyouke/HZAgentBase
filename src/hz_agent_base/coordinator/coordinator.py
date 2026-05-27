@@ -9,6 +9,7 @@ from deepagents import SubAgent
 
 from .worker import WorkerConfig
 from .team import TeamRegistry
+from ..prompts.manager import load_prompt
 
 
 class CoordinatorMiddleware(AgentMiddleware):
@@ -25,8 +26,13 @@ class CoordinatorMiddleware(AgentMiddleware):
         agent = create_agent(workers=workers)
     """
 
-    def __init__(self, workers: list[WorkerConfig]):
+    def __init__(
+        self,
+        workers: list[WorkerConfig],
+        shared_rules: list[str] | None = None,
+    ):
         self.workers = workers
+        self.shared_rules = shared_rules or []
         self.team_registry = TeamRegistry()
 
         # 将 worker 注册到对应的 team
@@ -37,7 +43,7 @@ class CoordinatorMiddleware(AgentMiddleware):
         self.subagents: list[SubAgent] = [
             SubAgent(
                 name=w.name,
-                prompt=w.prompt,
+                prompt=self._resolve_prompt(w),
                 tools=w.tools if w.tools else None,
                 model=w.model,
             )
@@ -60,6 +66,16 @@ class CoordinatorMiddleware(AgentMiddleware):
             )
         )
         return handler(new_request)
+
+    def _resolve_prompt(self, worker: WorkerConfig) -> str:
+        """解析 worker 的提示词。
+
+        优先级：prompt_dir > prompt 字符串。
+        prompt_dir 模式下自动加载 base.md + rules/ + 共享规则。
+        """
+        if worker.prompt_dir:
+            return load_prompt(worker.prompt_dir, shared_rules=self.shared_rules)
+        return worker.prompt
 
     def _build_worker_description(self) -> str:
         """构建 worker 描述文本。"""

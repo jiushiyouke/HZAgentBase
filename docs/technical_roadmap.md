@@ -214,7 +214,41 @@ agent = create_agent(
 )
 ```
 
-### 5.2 业务项目集成方式
+### 5.2 提示词和规则管理
+
+```python
+# 目录结构
+# prompts/
+# ├── shared/rules/          # 所有 agent 共享的规则
+# │   ├── safety.md
+# │   └── format.md
+# ├── coordinator/base.md    # 协调者人设
+# ├── researcher/            # 研究员独立目录
+# │   ├── base.md
+# │   └── rules/search.md
+# └── coder/                 # 程序员独立目录
+#     ├── base.md
+#     └── rules/code_style.md
+
+from hz_agent_base import create_agent, WorkerConfig
+
+agent = create_agent(
+    # 主 agent：从目录加载，叠加共享规则
+    system_prompt="./prompts/coordinator/",
+    rules=["./prompts/shared/rules/"],
+
+    # 每个 worker 独立管理提示词
+    workers=[
+        WorkerConfig(name="researcher", prompt_dir="./prompts/researcher/"),
+        WorkerConfig(name="coder", prompt_dir="./prompts/coder/"),
+    ],
+)
+
+# 也支持直接传字符串（向后兼容）
+agent = create_agent(system_prompt="你是一个助手。")
+```
+
+### 5.3 业务项目集成方式
 
 **方式一：直接依赖（推荐）**
 
@@ -331,7 +365,16 @@ agent = create_agent(
 - [x] 导出 WorkerConfig
 - [x] 单元测试（18 个用例）
 
-### 阶段七：CLI 和示例（待开始）
+### 阶段七：提示词管理系统 ✅
+- [x] PromptManager — 从目录加载 base.md + rules/*.md
+- [x] 共享规则支持（shared_rules 参数，所有 agent 共享）
+- [x] load_prompt 便捷函数（支持字符串/文件路径/目录路径）
+- [x] create_agent() 的 system_prompt 支持文件路径
+- [x] create_agent() 新增 rules 参数（共享规则目录）
+- [x] WorkerConfig 新增 prompt_dir 字段（每个 worker 独立提示词目录）
+- [x] 单元测试（16 个用例）
+
+### 阶段八：CLI 和示例（待开始）
 - [ ] Click + Rich CLI
 - [ ] 基础交互式对话
 - [ ] 示例项目
@@ -397,6 +440,9 @@ HZAgentBase/
 │       ├── knowledge/
 │       │   ├── __init__.py
 │       │   └── protocol.py       # Retriever 协议定义
+│       ├── prompts/
+│       │   ├── __init__.py
+│       │   └── manager.py        # PromptManager 提示词管理
 │       ├── permissions/
 │       │   ├── __init__.py
 │       │   ├── checker.py        # PermissionChecker
@@ -432,7 +478,8 @@ HZAgentBase/
 │   ├── test_middleware.py
 │   ├── test_knowledge.py
 │   ├── test_filesystem.py
-│   └── test_coordinator.py
+│   ├── test_coordinator.py
+│   └── test_prompts.py
 └── examples/
     ├── basic_agent.py
     ├── custom_middleware.py
