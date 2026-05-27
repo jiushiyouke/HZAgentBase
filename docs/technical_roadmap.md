@@ -57,11 +57,9 @@ HZAgentBase 是一个可复用的 Agent Harness 基础设施库，为上层业�
 │  │  1. PermissionMiddleware  ← 权限检查                 │   │
 │  │  2. HookMiddleware        ← 生命周期事件             │   │
 │  │  3. MemoryMiddleware      ← 记忆注入/提取            │   │
-│  │  4. FilesystemMiddleware  ← 文件操作                 │   │
-│  │  5. SubAgentMiddleware    ← 子 Agent                 │   │
-│  │  6. CoordinatorMiddleware ← 多 Agent 编排            │   │
-│  │  7. SkillsMiddleware      ← 技能加载                 │   │
-│  │  8. [用户自定义 Middleware]                           │   │
+│  │  4. KnowledgeMiddleware   ← 知识库 RAG 检索          │   │
+│  │  5. CoordinatorMiddleware ← 多 Agent 编排            │   │
+│  │  6. [用户自定义 Middleware]                           │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -152,6 +150,35 @@ coordinator = create_agent(
 - AsyncSubAgent: 异步/远程
 ```
 
+### 4.5 知识库协议（RAG）
+
+```python
+# 设计原则：HZAgentBase 只定义检索协议，不绑定具体实现
+# 参考 LlamaIndex BaseRetriever 的最小接口设计
+
+# 协议定义（HZAgentBase 中）
+@dataclass(frozen=True)
+class RetrievalResult:
+    content: str       # 文档片段内容
+    source: str = ""   # 来源标识（文件名、URL 等）
+    score: float = 0.0 # 相关性分数 0~1
+
+class Retriever(Protocol):
+    def retrieve(self, query: str, top_k: int = 5) -> list[RetrievalResult]: ...
+
+# 独立项目 hz-knowledge-base 实现此协议：
+# - ChromaDB 向量存储
+# - sentence-transformers 本地嵌入（BAAI/bge-base-zh-v1.5）
+# - PDF / Word / Markdown / TXT 文档加载
+# - 智能分块和增量更新
+
+# 集成方式：通过 create_agent(retriever=...) 注入
+agent = create_agent(retriever=ChromaRetriever("./knowledge_db"))
+```
+
+**架构决策**：知识库实现独立为 `hz-knowledge-base` 项目，HZAgentBase 不引入 chromadb、PyTorch 等重依赖。
+通过 Python `typing.Protocol` 实现运行时类型检查，任何实现 `retrieve()` 方法的对象均可接入。
+
 ## 五、对外 API 设计
 
 ### 5.1 基础用法
@@ -161,7 +188,7 @@ from hz_agent_base import create_agent
 
 # 最简用法
 agent = create_agent()
-response = agent.run("帮我分析这个数据集")
+result = run_agent(agent, "帮我分析这个数据集", thread_id="user-1")
 
 # 完整用法
 agent = create_agent(
@@ -172,6 +199,17 @@ agent = create_agent(
     memory_path=".memory/",
     middleware=[MyCustomMiddleware()],
     backend=LocalBackend(),
+)
+
+# 带知识库的用法（需安装独立项目 hz-knowledge-base）
+from hz_knowledge_base import ChromaRetriever
+
+retriever = ChromaRetriever("./knowledge_db")
+retriever.load_directory("./docs/")
+
+agent = create_agent(
+    retriever=retriever,          # 知识库检索器
+    knowledge_top_k=5,            # 每次检索 Top-K 条
 )
 ```
 
@@ -246,48 +284,56 @@ agent = create_agent(
 
 ## 六、分阶段执行计划
 
-### 阶段一：项目骨架（当前）
+### 阶段一：项目骨架 ✅
 - [x] 创建项目结构
 - [x] 配置 Python 3.11 虚拟环境
-- [ ] pyproject.toml 配置
-- [ ] 基础包结构和 __init__.py
-- [ ] 安装核心依赖
+- [x] pyproject.toml 配置
+- [x] 基础包结构和 __init__.py
+- [x] 安装核心依赖
+- [x] .env 配置管理（python-dotenv）
+- [x] DeepSeek API 集成和测试
+- [x] 多用户线程隔离验证
 
-### 阶段二：权限系统（1-2天）
-- [ ] 从 OpenHarness 移植 PermissionChecker
-- [ ] 包装为 Deep Agents Middleware
-- [ ] 单元测试
-- [ ] 集成测试
+### 阶段二：权限系统 ✅
+- [x] 从 OpenHarness 移植 PermissionChecker
+- [x] 包装为 Deep Agents Middleware
+- [x] 修复 Middleware API（ModelRequest 数据类适配）
+- [x] 单元测试（15 个用例）
 
-### 阶段三：Hook 系统（1天）
-- [ ] 从 OpenHarness 移植 Hook 事件和类型
-- [ ] 移植 HookRegistry 和 HookExecutor
-- [ ] 包装为 Middleware
-- [ ] 单元测试
+### 阶段三：Hook 系统 ✅
+- [x] 从 OpenHarness 移植 Hook 事件和类型
+- [x] 移植 HookRegistry 和 HookExecutor
+- [x] 包装为 Middleware
+- [x] 单元测试（13 个用例）
 
-### 阶段四：记忆系统（1天）
-- [ ] 从 OpenHarness 移植记忆管理器
-- [ ] 移植搜索和相关性算法
-- [ ] 包装为 Middleware
-- [ ] 单元测试
+### 阶段四：记忆系统 ✅
+- [x] 从 OpenHarness 移植记忆管理器
+- [x] 移植搜索和相关性算法
+- [x] 包装为 Middleware
+- [x] 单元测试（15 个用例）
 
-### 阶段五：多 Agent 编排（2天）
+### 阶段五：知识库协议 ✅
+- [x] 定义 Retriever 协议（参考 LlamaIndex BaseRetriever）
+- [x] 实现 KnowledgeMiddleware
+- [x] 集成到 create_agent()（retriever 参数）
+- [x] 单元测试（12 个用例）
+- [ ] **独立项目 hz-knowledge-base**（ChromaDB + embedding 实现）
+
+### 阶段六：多 Agent 编排（待开始）
 - [ ] 从 OpenHarness 移植 Coordinator 模式
 - [ ] 实现 TeamRegistry
 - [ ] 包装为 Middleware
 - [ ] 集成测试
 
-### 阶段六：CLI 和示例（1天）
+### 阶段七：CLI 和示例（待开始）
 - [ ] Click + Rich CLI
 - [ ] 基础交互式对话
 - [ ] 示例项目
 
-### 阶段七：文档和发布（1天）
+### 阶段八：文档和发布（待开始）
 - [ ] API 文档
 - [ ] 使用指南
 - [ ] PyPI 发布配置
-
-**总计预估：7-10天**
 
 ## 七、依赖清单
 
@@ -300,11 +346,18 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "deepagents>=0.6.4,<0.7.0",
     "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.3.0",
     "langgraph>=0.4.0",
     "pydantic>=2.0",
     "click>=8.0",
     "rich>=13.0",
+    "openai>=1.0",
+    "python-dotenv>=1.0",
 ]
+
+# 知识库功能由独立项目 hz-knowledge-base 提供
+# pip install hz-knowledge-base
+# 内部依赖：chromadb, sentence-transformers, pypdf, python-docx
 ```
 
 ## 八、风险和应对
@@ -330,10 +383,13 @@ HZAgentBase/
 │       ├── agent.py              # create_agent() 入口
 │       ├── middleware/
 │       │   ├── __init__.py
-│       │   ├── base.py           # AgentMiddleware 基类
 │       │   ├── permission.py     # 权限中间件
 │       │   ├── hook.py           # Hook 中间件
-│       │   └── memory.py         # 记忆中间件
+│       │   ├── memory.py         # 记忆中间件
+│       │   └── knowledge.py      # 知识库中间件
+│       ├── knowledge/
+│       │   ├── __init__.py
+│       │   └── protocol.py       # Retriever 协议定义
 │       ├── permissions/
 │       │   ├── __init__.py
 │       │   ├── checker.py        # PermissionChecker
@@ -360,10 +416,14 @@ HZAgentBase/
 │       └── backends/
 │           └── __init__.py
 ├── tests/
+│   ├── conftest.py
+│   ├── test_agent.py
+│   ├── test_config.py
 │   ├── test_permissions.py
 │   ├── test_hooks.py
 │   ├── test_memory.py
-│   └── test_coordinator.py
+│   ├── test_middleware.py
+│   └── test_knowledge.py
 └── examples/
     ├── basic_agent.py
     ├── custom_middleware.py

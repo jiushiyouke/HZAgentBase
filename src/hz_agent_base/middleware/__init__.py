@@ -5,10 +5,12 @@ from langchain.agents.middleware.types import AgentMiddleware
 from .permission import PermissionMiddleware
 from .hook import HookMiddleware
 from .memory import MemoryMiddleware
+from .knowledge import KnowledgeMiddleware
 
 __all__ = [
     "AgentMiddleware",
     "PermissionMiddleware",
     "HookMiddleware",
     "MemoryMiddleware",
+    "KnowledgeMiddleware",
 ]

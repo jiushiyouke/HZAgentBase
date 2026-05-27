@@ -16,6 +16,7 @@ from .agent import create_agent, run_agent
 from .permissions import PermissionSettings, PermissionMode
 from .hooks import HookRegistry, HookEvent
 from .middleware import AgentMiddleware
+from .knowledge import Retriever, RetrievalResult
 
 __version__ = "0.1.0"
 
@@ -27,4 +28,6 @@ __all__ = [
     "HookRegistry",
     "HookEvent",
     "AgentMiddleware",
+    "Retriever",
+    "RetrievalResult",
 ]

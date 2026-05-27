@@ -15,6 +15,8 @@ from .middleware import AgentMiddleware
 from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
+from .middleware.knowledge import KnowledgeMiddleware
+from .knowledge.protocol import Retriever
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
 
@@ -58,6 +60,8 @@ def create_agent(
     permissions: PermissionSettings | None = None,
     hooks: HookRegistry | None = None,
     memory_path: str | None = None,
+    retriever: Retriever | None = None,
+    knowledge_top_k: int = 5,
     middleware: Sequence[AgentMiddleware] | None = None,
     backend: BackendProtocol | None = None,
     **kwargs,
@@ -71,6 +75,9 @@ def create_agent(
         permissions: Permission settings. If None, uses DEFAULT mode.
         hooks: Hook registry for lifecycle events.
         memory_path: Path to memory directory for persistent knowledge.
+        retriever: Knowledge base retriever for RAG. Any object implementing
+                   the Retriever protocol (e.g., from hz-knowledge-base).
+        knowledge_top_k: Number of knowledge results to retrieve per query.
         middleware: Additional custom middleware.
         backend: Filesystem/sandbox backend.
         **kwargs: Additional arguments passed to create_deep_agent().
@@ -94,7 +101,11 @@ def create_agent(
     if memory_path is not None:
         harness_middleware.append(MemoryMiddleware(memory_path))
 
-    # 4. User-provided middleware
+    # 4. Knowledge middleware (RAG retrieval from knowledge base)
+    if retriever is not None:
+        harness_middleware.append(KnowledgeMiddleware(retriever, top_k=knowledge_top_k))
+
+    # 5. User-provided middleware
     if middleware:
         harness_middleware.extend(middleware)
 
