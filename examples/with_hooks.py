@@ -1,41 +1,32 @@
-"""Example: Agent with hook system for lifecycle events."""
+"""示例：使用 Hook 系统监控工具调用。"""
 
 from hz_agent_base import (
     create_agent,
+    run_agent,
     HookRegistry,
     HookEvent,
 )
 from hz_agent_base.hooks import CommandHookDefinition
 
-# Create a hook registry
+# 创建 Hook 注册表
 registry = HookRegistry()
 
-# Register a hook that logs all tool calls
+# 注册 Hook：记录所有工具调用
 registry.register(CommandHookDefinition(
     event=HookEvent.POST_TOOL_USE,
     command='echo "Tool used: $HZ_HOOK_PAYLOAD" >> tool_usage.log',
     block_on_failure=False,
 ))
 
-# Register a hook that blocks dangerous commands
-registry.register(CommandHookDefinition(
-    event=HookEvent.PRE_TOOL_USE,
-    matcher="bash",
-    command='echo "$HZ_HOOK_PAYLOAD" | python -c "import sys,json; d=json.load(sys.stdin); exit(0 if \'rm\' in d.get(\'arguments\',{}).get(\'command\',\'\') else 1)"',
-    block_on_failure=True,
-))
+# 创建带 Hook 的 agent
+agent = create_agent(hooks=registry)
 
-# Create agent with hooks
-agent = create_agent(
-    hooks=registry,
+# 运行
+result = run_agent(
+    agent,
+    "显示当前目录内容",
+    thread_id="demo",
 )
-
-# Run a query
-result = agent.invoke({
-    "messages": [
-        {"role": "user", "content": "Show me the current directory contents"}
-    ]
-})
 
 for msg in result.get("messages", []):
     if hasattr(msg, "type") and msg.type == "ai":

@@ -1,18 +1,14 @@
-"""Basic agent example - simplest usage of HZAgentBase."""
+"""基础示例：最简单的 HZAgentBase 使用方式。"""
 
-from hz_agent_base import create_agent
+from hz_agent_base import create_agent, run_agent
 
-# Create a basic agent with default settings (deepseek-v4-flash)
+# 创建 agent（默认使用 deepseek-v4-flash）
 agent = create_agent()
 
-# Run a simple query
-result = agent.invoke({
-    "messages": [
-        {"role": "user", "content": "What is 2 + 2?"}
-    ]
-})
+# 运行一次对话
+result = run_agent(agent, "2 + 2 等于多少？")
 
-# Print the response
+# 输出结果
 for msg in result.get("messages", []):
     if hasattr(msg, "type") and msg.type == "ai":
         print(f"Agent: {msg.content}")

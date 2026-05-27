@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Callable, Sequence
 
 from deepagents import create_deep_agent
@@ -76,6 +77,7 @@ def create_agent(
 
     Returns:
         Compiled LangGraph agent ready to run.
+        Thread-safe: the same instance can serve multiple users concurrently.
     """
     harness_middleware: list[AgentMiddleware] = []
 
@@ -107,3 +109,41 @@ def create_agent(
         backend=backend,
         **kwargs,
     )
+
+
+def run_agent(
+    agent: CompiledStateGraph,
+    message: str,
+    *,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Run an agent with a single message, with thread isolation.
+
+    Each call is fully isolated via thread_id. Different users should
+    use different thread_id values to ensure state isolation.
+
+    Args:
+        agent: The compiled agent from create_agent().
+        message: The user message to send.
+        thread_id: Unique thread identifier. Auto-generated if not provided.
+                   Use different thread_id for different users/sessions.
+        user_id: Optional user identifier for logging.
+
+    Returns:
+        The agent's response state including messages.
+    """
+    if thread_id is None:
+        thread_id = str(uuid.uuid4())
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
+
+    input_state = {
+        "messages": [{"role": "user", "content": message}],
+    }
+
+    return agent.invoke(input_state, config=config)
