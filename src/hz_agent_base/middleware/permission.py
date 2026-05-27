@@ -1,4 +1,8 @@
-"""Permission middleware - filters tools based on permission settings."""
+"""权限中间件 — 在模型调用前过滤可用工具列表。
+
+应放在管道最前面，确保模型只能看到被允许的工具。
+FULL_AUTO 模式下跳过过滤。
+"""
 
 from __future__ import annotations
 
@@ -11,24 +15,20 @@ from ..permissions.settings import PermissionSettings
 
 
 class PermissionMiddleware(AgentMiddleware):
-    """Filters available tools based on permission settings.
-
-    This middleware should be placed first in the pipeline to ensure
-    only allowed tools are presented to the model.
-    """
+    """根据权限设置过滤可用工具的中间件。"""
 
     def __init__(self, settings: PermissionSettings):
         self.checker = PermissionChecker(settings)
 
     def wrap_model_call(self, request, handler) -> Any:
-        """Filter tools based on permissions before model call."""
+        """在模型调用前过滤工具列表。"""
         from ..permissions.settings import PermissionMode
 
-        # In full_auto mode, allow all tools
+        # FULL_AUTO 模式：不过滤，全部放行
         if self.checker.settings.mode == PermissionMode.FULL_AUTO:
             return handler(request)
 
-        # Filter tools based on permission settings
+        # 按白名单/黑名单过滤工具
         allowed_tools = []
         for tool in request.tools:
             tool_name = getattr(tool, "name", None) or (
@@ -37,6 +37,6 @@ class PermissionMiddleware(AgentMiddleware):
             if self.checker.is_tool_allowed(tool_name):
                 allowed_tools.append(tool)
 
-        # Create a new request with filtered tools
+        # 用过滤后的工具列表创建新请求
         filtered_request = request.override(tools=allowed_tools)
         return handler(filtered_request)

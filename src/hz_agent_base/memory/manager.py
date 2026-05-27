@@ -90,14 +90,91 @@ metadata:
         self,
         messages: list[Any],
         response: Any,
-    ) -> None:
+    ) -> list[Path]:
         """Extract memories from conversation and save them.
 
-        This is a placeholder implementation. In production, this would
-        use an LLM to extract relevant memories from the conversation.
+        使用关键词模式匹配从对话中提取值得记忆的信息。
+        支持的记忆触发模式：
+        - "记住..." / "remember..."
+        - "我喜欢..." / "我偏好..." / "I prefer..."
+        - "不要..." / "别..." / "don't..."
+        - "我是..." / "I am..."（角色/身份信息）
+
+        Args:
+            messages: 对话历史消息列表。
+            response: Agent 的响应（支持 dict 或带 messages 属性的对象）。
+
+        Returns:
+            已保存的记忆文件路径列表。
         """
-        # TODO: Implement LLM-based memory extraction
-        pass
+        saved: list[Path] = []
+
+        # 提取用户消息文本
+        user_texts = self._extract_user_texts(messages)
+        if not user_texts:
+            return saved
+
+        # 合并最近几轮对话用于上下文
+        recent = user_texts[-5:]
+
+        for text in recent:
+            memories = self._parse_memory_patterns(text)
+            for title, content, mem_type in memories:
+                path = self.add_memory(
+                    title=title,
+                    content=content,
+                    memory_type=mem_type,
+                    description=f"从对话中自动提取: {title}",
+                )
+                saved.append(path)
+
+        return saved
+
+    def _extract_user_texts(self, messages: list[Any]) -> list[str]:
+        """从消息列表中提取用户消息文本。"""
+        texts = []
+        for msg in messages:
+            # 支持多种消息格式
+            role = getattr(msg, "role", None) or (msg.get("role") if isinstance(msg, dict) else None)
+            if role != "user":
+                continue
+            content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else None)
+            if content and isinstance(content, str):
+                texts.append(content)
+        return texts
+
+    def _parse_memory_patterns(self, text: str) -> list[tuple[str, str, str]]:
+        """从文本中匹配记忆触发模式。
+
+        Returns:
+            列表元素为 (title, content, memory_type)。
+        """
+        import re
+
+        results: list[tuple[str, str, str]] = []
+
+        # 模式定义：(正则, memory_type)
+        patterns = [
+            # "记住xxx" / "remember xxx"
+            (r"(?:记住|记得|remember)[:：\s]*(.+)", "user"),
+            # "我喜欢xxx" / "我偏好xxx" / "I prefer xxx"
+            (r"(?:我(?:喜欢|偏好|习惯)|i\s+prefer)[:：\s]*(.+)", "user"),
+            # "不要xxx" / "别xxx" / "don't xxx"
+            (r"(?:不要|别|请勿|don'?t)[:：\s]*(.+)", "feedback"),
+            # "我是xxx" / "I am xxx"（身份/角色）
+            (r"(?:我是|i\s+am(?:\s+a)?)[:：\s]*(.+)", "user"),
+        ]
+
+        for pattern, mem_type in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                content = match.group(1).strip()
+                if len(content) >= 2:  # 过滤过短的匹配
+                    # 用内容前20个字符作为标题
+                    title = content[:20].replace("\n", " ")
+                    results.append((title, content, mem_type))
+
+        return results
 
     def _title_to_slug(self, title: str) -> str:
         """Convert a title to a filesystem-safe slug."""

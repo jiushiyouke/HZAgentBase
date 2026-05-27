@@ -384,10 +384,12 @@ agent = create_agent(
 - [x] 新增 server_integration.py（FastAPI 服务器集成示例）
 - [x] 更新 multi_agent.py、with_hooks.py
 
-### 阶段八：文档和发布（待开始）
-- [ ] API 文档
+### 阶段九：文档和发布（进行中）
+- [x] API 文档（docs/api_reference.md）
+- [x] README 更新（完整参数参考、中间件管道、知识库、文件审计、提示词管理）
+- [x] PyPI 发布元数据（classifiers、project.urls）
 - [ ] 使用指南
-- [ ] PyPI 发布配置
+- [ ] PyPI 实际发布
 
 ## 七、依赖清单
 
@@ -462,8 +464,7 @@ HZAgentBase/
 │       ├── memory/
 │       │   ├── __init__.py
 │       │   ├── manager.py        # 记忆管理
-│       │   ├── search.py         # 记忆搜索
-│       │   └── relevance.py      # 相关性算法
+│       │   └── relevance.py      # 记忆搜索与相关性算法
 │       ├── coordinator/
 │       │   ├── __init__.py
 │       │   ├── coordinator.py    # Coordinator 模式

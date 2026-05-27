@@ -1,4 +1,12 @@
-"""Memory relevance - search and rank memories by relevance to a query."""
+"""记忆搜索与相关性算法。
+
+使用 token 重叠加权评分：
+- 名称匹配: 3 倍权重
+- 描述匹配: 2 倍权重
+- 内容匹配: 1 倍权重
+
+按查询词归一化后排序，返回 top-N 结果。
+"""
 
 from __future__ import annotations
 
@@ -10,14 +18,25 @@ from typing import Callable
 
 @dataclass
 class MemoryEntry:
-    """A parsed memory entry."""
+    """解析后的记忆条目。"""
 
     path: Path
+    """记忆文件路径。"""
+
     name: str
+    """记忆名称（来自 frontmatter）。"""
+
     description: str
+    """记忆描述（来自 frontmatter）。"""
+
     memory_type: str
+    """记忆类型（user / feedback / project / reference）。"""
+
     content: str
+    """记忆正文内容。"""
+
     score: float = 0.0
+    """相关性评分。"""
 
 
 def select_relevant_memories(
@@ -26,44 +45,44 @@ def select_relevant_memories(
     max_results: int = 5,
     selector: Callable[[str, list[MemoryEntry]], list[MemoryEntry]] | None = None,
 ) -> list[MemoryEntry]:
-    """Select memories relevant to a query.
+    """根据查询选择最相关的记忆。
 
     Args:
-        query: The search query.
-        memory_path: Path to the memory directory.
-        max_results: Maximum number of results.
-        selector: Optional custom selector function.
+        query: 搜索查询文本。
+        memory_path: 记忆存储目录路径。
+        max_results: 最大返回数量。
+        selector: 可选的自定义选择函数，用于二次过滤。
 
     Returns:
-        List of relevant MemoryEntry objects.
+        按相关性排序的记忆列表（过滤掉评分为 0 的）。
     """
     memory_path = Path(memory_path)
     if not memory_path.exists():
         return []
 
-    # Load all memories
+    # 加载所有记忆文件
     entries = _load_memories(memory_path)
     if not entries:
         return []
 
-    # Score by relevance
+    # 计算相关性评分
     query_tokens = _tokenize(query)
     for entry in entries:
         entry.score = _compute_score(query_tokens, entry)
 
-    # Sort by score descending
+    # 按评分降序排序
     entries.sort(key=lambda e: e.score, reverse=True)
 
-    # Apply custom selector if provided
+    # 应用自定义选择器
     if selector:
         entries = selector(query, entries)
 
-    # Return top results (filter out zero-score)
+    # 返回 top 结果，过滤掉评分为 0 的
     return [e for e in entries[:max_results] if e.score > 0]
 
 
 def format_relevant_memories(memories: list[MemoryEntry]) -> str:
-    """Format memories for injection into system prompt."""
+    """将记忆格式化为可注入系统提示词的文本。"""
     if not memories:
         return ""
 
@@ -79,7 +98,7 @@ def format_relevant_memories(memories: list[MemoryEntry]) -> str:
 
 
 def _load_memories(memory_path: Path) -> list[MemoryEntry]:
-    """Load all memory files from the directory."""
+    """从目录加载所有记忆文件。"""
     entries = []
     for filepath in memory_path.glob("*.md"):
         if filepath.name == "MEMORY.md":
@@ -100,24 +119,24 @@ def _load_memories(memory_path: Path) -> list[MemoryEntry]:
 
 
 def _parse_memory_file(content: str) -> tuple[str, str, str, str]:
-    """Parse a memory file with YAML frontmatter.
+    """解析带 YAML frontmatter 的记忆文件。
 
     Returns:
-        (name, description, memory_type, body)
+        (name, description, memory_type, body) 四元组。
     """
     name = ""
     description = ""
     memory_type = "general"
     body = content
 
-    # Check for frontmatter
+    # 解析 frontmatter（--- 分隔的 YAML 块）
     if content.startswith("---"):
         parts = content.split("---", 2)
         if len(parts) >= 3:
             frontmatter = parts[1]
             body = parts[2].strip()
 
-            # Parse simple YAML fields
+            # 简单解析 YAML 字段（不引入 PyYAML 依赖）
             for line in frontmatter.split("\n"):
                 line = line.strip()
                 if line.startswith("name:"):
@@ -131,28 +150,31 @@ def _parse_memory_file(content: str) -> tuple[str, str, str, str]:
 
 
 def _tokenize(text: str) -> set[str]:
-    """Tokenize text into lowercase words."""
+    """将文本分词为小写单词集合。"""
     return set(re.findall(r"\w+", text.lower()))
 
 
 def _compute_score(query_tokens: set[str], entry: MemoryEntry) -> float:
-    """Compute relevance score between query and memory entry."""
-    # Tokenize all fields
+    """计算查询与记忆条目的相关性评分。
+
+    加权策略：
+    - 名称 token 重叠 × 3
+    - 描述 token 重叠 × 2
+    - 内容 token 重叠 × 1
+
+    最终按查询长度归一化，避免长查询天然高分。
+    """
     name_tokens = _tokenize(entry.name)
     desc_tokens = _tokenize(entry.description)
     content_tokens = _tokenize(entry.content)
 
-    # Weighted overlap scoring
-    # Name matches: 3x weight
     name_overlap = len(query_tokens & name_tokens) * 3
-    # Description matches: 2x weight
     desc_overlap = len(query_tokens & desc_tokens) * 2
-    # Content matches: 1x weight
     content_overlap = len(query_tokens & content_tokens)
 
     total = name_overlap + desc_overlap + content_overlap
 
-    # Normalize by query length to avoid bias toward longer queries
+    # 按查询长度归一化
     if query_tokens:
         total = total / len(query_tokens)
 

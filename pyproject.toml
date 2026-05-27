@@ -5,13 +5,26 @@ build-backend = "hatchling.build"
 [project]
 name = "hz-agent-base"
 version = "0.1.0"
-description = "Reusable Agent Harness infrastructure library"
+description = "Reusable Agent Harness infrastructure library — 权限控制、Hook 系统、记忆系统、知识库 RAG、文件审计、多 Agent 编排"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<3.12"
 authors = [
     { name = "HZ Team" },
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/jiushiyouke/HZAgentBase"
+Repository = "https://github.com/jiushiyouke/HZAgentBase"
+"Bug Tracker" = "https://github.com/jiushiyouke/HZAgentBase/issues"
 
 dependencies = [
     "deepagents>=0.6.4,<0.7.0",

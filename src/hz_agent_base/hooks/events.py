@@ -1,25 +1,25 @@
-"""Hook event types."""
+"""Hook 事件类型定义。"""
 
 from enum import Enum
 
 
 class HookEvent(Enum):
-    """Events that trigger hooks."""
+    """触发 Hook 的生命周期事件。"""
 
     SESSION_START = "session_start"
-    """Fired when a new session begins."""
+    """新会话开始时触发。"""
 
     SESSION_END = "session_end"
-    """Fired when the session ends."""
+    """会话结束时触发。"""
 
     PRE_TOOL_USE = "pre_tool_use"
-    """Fired before a tool is executed."""
+    """工具执行前触发。"""
 
     POST_TOOL_USE = "post_tool_use"
-    """Fired after a tool is executed."""
+    """工具执行后触发。"""
 
     USER_PROMPT_SUBMIT = "user_prompt_submit"
-    """Fired when the user submits a message."""
+    """用户提交消息时触发。"""
 
     STOP = "stop"
-    """Fired when the agent stops."""
+    """Agent 停止时触发。"""

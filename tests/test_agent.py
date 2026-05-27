@@ -34,13 +34,14 @@ class TestGetModel:
             assert "deepseek" in call_kwargs.get("base_url", "").lower()
             assert call_kwargs.get("model") == "deepseek-v4-flash"
 
-    def test_non_deepseek_model_uses_default_url(self):
-        """非 deepseek 模型不应设置 base_url。"""
+    def test_non_deepseek_model_uses_openai_url(self):
+        """gpt-* 模型应使用 OPENAI_BASE_URL。"""
         with patch("hz_agent_base.agent.ChatOpenAI") as mock_cls:
             mock_cls.return_value = MagicMock()
             _get_model("gpt-4")
             call_kwargs = mock_cls.call_args[1]
-            assert "base_url" not in call_kwargs
+            assert "base_url" in call_kwargs
+            assert "openai" in call_kwargs["base_url"]
 
 
 class TestCreateAgent:

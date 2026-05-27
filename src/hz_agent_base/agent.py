@@ -10,7 +10,7 @@ from deepagents.graph import CompiledStateGraph
 from deepagents.backends import BackendProtocol
 from langchain_openai import ChatOpenAI
 
-from .config import DEEPSEEK_API_KEY, DEFAULT_MODEL, DEEPSEEK_BASE_URL
+from .config import DEFAULT_MODEL, MODEL_API_KEY, MODEL_BASE_URL, AUDIT_LOG_PATH, KNOWLEDGE_TOP_K
 from .middleware import AgentMiddleware
 from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
@@ -24,9 +24,24 @@ from .prompts.manager import load_prompt
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
 
+# 各提供商的默认 API 地址（MODEL_BASE_URL 未设置时使用）
+_PROVIDER_DEFAULT_URLS = {
+    "deepseek": "https://api.deepseek.com/v1",
+    "openai": "https://api.openai.com/v1",
+}
+
 
 def _get_model(model: str | Any | None = None) -> Any:
     """Resolve model string to a LangChain chat model instance.
+
+    根据 DEFAULT_MODEL 的值自动选择提供商，统一使用 MODEL_API_KEY 认证：
+    - deepseek-*  → DeepSeek API（OpenAI 兼容）
+    - gpt-* / o1-* / o3-* → OpenAI API
+    - claude-*    → Anthropic API（langchain-anthropic）
+    - gemini-*    → Google Gemini API（langchain-google-genai）
+    - 其他        → OpenAI 兼容方式（Ollama、vLLM 等）
+
+    也可以直接传入已配置好的 LangChain 模型实例，会原样返回。
 
     Args:
         model: Model name string or a pre-configured model instance.
@@ -37,23 +52,51 @@ def _get_model(model: str | Any | None = None) -> Any:
     if model is None:
         model = DEFAULT_MODEL
 
-    # If already a model instance, return as-is
+    # 已经是模型实例，直接返回
     if hasattr(model, "invoke"):
         return model
 
-    # String model name - create ChatOpenAI for DeepSeek
-    if isinstance(model, str):
-        # DeepSeek uses OpenAI-compatible API
-        if "deepseek" in model.lower():
-            return ChatOpenAI(
-                model=model,
-                base_url=DEEPSEEK_BASE_URL,
-                api_key=DEEPSEEK_API_KEY,
-            )
-        # Default to ChatOpenAI for other models
-        return ChatOpenAI(model=model)
+    if not isinstance(model, str):
+        return model
 
-    return model
+    model_lower = model.lower()
+
+    # Anthropic（claude-*）— 使用独立 SDK，不走 base_url
+    if "claude" in model_lower:
+        try:
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(model=model, api_key=MODEL_API_KEY)
+        except ImportError:
+            raise ImportError(
+                "使用 Claude 模型需要安装 langchain-anthropic: "
+                "pip install langchain-anthropic"
+            )
+
+    # Google Gemini — 使用独立 SDK，不走 base_url
+    if "gemini" in model_lower:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(model=model, google_api_key=MODEL_API_KEY)
+        except ImportError:
+            raise ImportError(
+                "使用 Gemini 模型需要安装 langchain-google-genai: "
+                "pip install langchain-google-genai"
+            )
+
+    # 以下均为 OpenAI 兼容 API（DeepSeek、OpenAI、Ollama 等）
+    # 确定 base_url：用户显式设置 > 提供商默认 > 不传（让 SDK 自己决定）
+    base_url = MODEL_BASE_URL
+    if not base_url:
+        if "deepseek" in model_lower:
+            base_url = _PROVIDER_DEFAULT_URLS["deepseek"]
+        elif any(model_lower.startswith(p) for p in ("gpt-", "o1-", "o3-")):
+            base_url = _PROVIDER_DEFAULT_URLS["openai"]
+
+    kwargs: dict[str, Any] = {"model": model, "api_key": MODEL_API_KEY}
+    if base_url:
+        kwargs["base_url"] = base_url
+
+    return ChatOpenAI(**kwargs)
 
 
 def create_agent(
@@ -66,7 +109,7 @@ def create_agent(
     hooks: HookRegistry | None = None,
     memory_path: str | None = None,
     retriever: Retriever | None = None,
-    knowledge_top_k: int = 5,
+    knowledge_top_k: int = KNOWLEDGE_TOP_K,
     filesystem: bool | dict[str, Any] = False,
     workers: list[WorkerConfig] | None = None,
     middleware: Sequence[AgentMiddleware] | None = None,
@@ -76,7 +119,8 @@ def create_agent(
     """Create an agent with HZAgentBase harness.
 
     Args:
-        model: LLM model name or instance. Defaults to deepseek-v4-flash.
+        model: LLM model name or instance. Defaults to DEFAULT_MODEL from .env.
+               根据名称自动匹配提供商，也可传入预配置的模型实例。
         tools: Custom tools to register.
         system_prompt: Custom system prompt. 支持三种形式：
             - 字符串：直接作为提示词文本
@@ -107,6 +151,9 @@ def create_agent(
     # 加载提示词（支持字符串、文件路径、目录路径）
     resolved_prompt = load_prompt(system_prompt, shared_rules=rules)
 
+    # 提前解析 model，供 HookMiddleware 使用（PromptHook / AgentHook 需要 LLM）
+    resolved_model = _get_model(model)
+
     harness_middleware: list[AgentMiddleware] = []
 
     # 1. Permission middleware (first - gates all tool calls)
@@ -116,7 +163,7 @@ def create_agent(
 
     # 2. Hook middleware (lifecycle events)
     if hooks is not None:
-        harness_middleware.append(HookMiddleware(hooks))
+        harness_middleware.append(HookMiddleware(hooks, model=resolved_model))
 
     # 3. Memory middleware (inject/extract persistent knowledge)
     if memory_path is not None:
@@ -128,8 +175,8 @@ def create_agent(
 
     # 5. Filesystem middleware (audit and change tracking)
     if filesystem:
-        # 默认配置：开启审计、开启变更追踪、日志写入 .audit/audit.jsonl
-        default_fs_opts = {"log_path": ".audit/audit.jsonl"}
+        # 默认配置：开启审计、开启变更追踪、日志路径从 .env 读取
+        default_fs_opts = {"log_path": AUDIT_LOG_PATH}
         fs_opts = {**default_fs_opts, **(filesystem if isinstance(filesystem, dict) else {})}
         harness_middleware.append(FilesystemMiddleware(**fs_opts))
 
@@ -142,9 +189,6 @@ def create_agent(
     if workers:
         coordinator = CoordinatorMiddleware(workers, shared_rules=rules)
         harness_middleware.append(coordinator)
-
-    # Resolve model
-    resolved_model = _get_model(model)
 
     # 构建 create_deep_agent 参数
     agent_kwargs: dict[str, Any] = {

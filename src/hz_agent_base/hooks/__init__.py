@@ -1,4 +1,11 @@
-"""Hooks package."""
+"""Hook 系统包。
+
+提供生命周期事件钩子，支持 4 种类型：
+- CommandHook: 执行 shell 命令
+- HttpHook: 发送 HTTP POST 请求
+- PromptHook: LLM 验证条件
+- AgentHook: 子 Agent 深度验证
+"""
 
 from .events import HookEvent
 from .schemas import (

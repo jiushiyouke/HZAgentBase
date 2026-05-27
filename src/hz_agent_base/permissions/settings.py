@@ -1,4 +1,4 @@
-"""Permission settings."""
+"""权限配置数据类和敏感路径定义。"""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ from .modes import PermissionMode
 
 @dataclass
 class PermissionSettings:
-    """Configuration for the permission system.
+    """权限系统配置。
 
     Attributes:
-        mode: Permission mode (DEFAULT, PLAN, FULL_AUTO).
-        allowed_tools: Tools that are always allowed.
-        denied_tools: Tools that are always denied.
-        allowed_paths: Glob patterns for allowed file paths.
-        denied_paths: Glob patterns for denied file paths.
-        denied_commands: Shell command patterns that are denied.
+        mode: 权限模式（DEFAULT / PLAN / FULL_AUTO）。
+        allowed_tools: 始终允许的工具白名单。为空表示不限制。
+        denied_tools: 始终拒绝的工具黑名单。
+        allowed_paths: 允许访问的文件路径 glob 模式。
+        denied_paths: 拒绝访问的文件路径 glob 模式。
+        denied_commands: 拒绝执行的 shell 命令模式（子串匹配）。
     """
 
     mode: PermissionMode = PermissionMode.DEFAULT
@@ -35,7 +35,8 @@ class PermissionSettings:
     ])
 
 
-# Sensitive paths that are always denied regardless of settings
+# 敏感路径列表 — 无论权限设置如何，始终拒绝访问
+# 包含 SSH 密钥、云服务凭证、环境变量文件、私钥等
 SENSITIVE_PATH_PATTERNS = [
     "~/.ssh/*",
     "~/.aws/*",

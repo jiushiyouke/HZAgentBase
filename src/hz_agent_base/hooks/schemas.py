@@ -1,4 +1,11 @@
-"""Hook definition schemas."""
+"""Hook 定义数据类。
+
+定义 4 种 Hook 类型：
+- CommandHookDefinition: 执行 shell 命令
+- HttpHookDefinition: 发送 HTTP POST 请求
+- PromptHookDefinition: LLM 验证条件
+- AgentHookDefinition: 子 Agent 深度验证
+"""
 
 from __future__ import annotations
 
@@ -10,13 +17,13 @@ from .events import HookEvent
 
 @dataclass
 class HookDefinition:
-    """Base hook definition.
+    """Hook 基类定义。
 
     Attributes:
-        event: The event that triggers this hook.
-        matcher: fnmatch pattern to match tool names. None matches all.
-        timeout_seconds: Maximum execution time.
-        block_on_failure: Whether to block the operation if the hook fails.
+        event: 触发此 Hook 的事件类型。
+        matcher: fnmatch 模式，用于匹配工具名。None 表示匹配所有。
+        timeout_seconds: 最大执行时间（秒）。
+        block_on_failure: Hook 执行失败时是否阻止操作。
     """
 
     event: HookEvent
@@ -27,42 +34,42 @@ class HookDefinition:
 
 @dataclass
 class CommandHookDefinition(HookDefinition):
-    """Hook that executes a shell command.
+    """执行 shell 命令的 Hook。
 
-    The command receives the hook payload as environment variables:
-    - HZ_HOOK_EVENT: The event name
-    - HZ_HOOK_PAYLOAD: JSON-encoded payload
+    命令通过环境变量接收 Hook 上下文：
+    - HZ_HOOK_EVENT: 事件名称
+    - HZ_HOOK_PAYLOAD: JSON 编码的事件数据
     """
 
     command: str = ""
-    """Shell command to execute."""
+    """要执行的 shell 命令。"""
 
 
 @dataclass
 class HttpHookDefinition(HookDefinition):
-    """Hook that sends an HTTP POST request."""
+    """发送 HTTP POST 请求的 Hook。"""
 
     url: str = ""
-    """URL to POST the payload to."""
+    """POST 请求的目标 URL。"""
 
     headers: dict[str, str] = field(default_factory=dict)
-    """Additional HTTP headers."""
+    """额外的 HTTP 请求头。"""
 
 
 @dataclass
 class PromptHookDefinition(HookDefinition):
-    """Hook that uses an LLM to validate a condition.
+    """使用 LLM 验证条件的 Hook。
 
-    The LLM should respond with {"ok": true} or {"ok": false}.
+    LLM 应返回 {"ok": true} 或 {"ok": false} 来决定是否放行。
     """
 
     prompt: str = ""
-    """Prompt to send to the LLM for validation."""
+    """发送给 LLM 的验证提示词。"""
 
 
 @dataclass
 class AgentHookDefinition(HookDefinition):
-    """Hook that uses a sub-agent for deeper validation."""
+    """使用子 Agent 进行深度验证的 Hook。"""
 
     agent_prompt: str = ""
-    """System prompt for the validation agent."""
+    """验证子 Agent 的系统提示词。"""
