@@ -89,7 +89,7 @@ metadata:
     def extract_and_save(
         self,
         messages: list[Any],
-        response: dict[str, Any],
+        response: Any,
     ) -> None:
         """Extract memories from conversation and save them.
 

@@ -20,25 +20,28 @@ class MemoryMiddleware(AgentMiddleware):
     def __init__(self, memory_path: str):
         self.manager = MemoryManager(memory_path)
 
-    def wrap_model_call(self, request: dict[str, Any], handler) -> dict[str, Any]:
+    def wrap_model_call(self, request, handler) -> Any:
         """Inject memories before call, extract after."""
         # Get the latest user message for relevance search
-        messages = request.get("messages", [])
+        messages = request.messages or []
         query = ""
-        if messages:
-            last_msg = messages[-1]
-            if isinstance(last_msg, dict):
-                query = last_msg.get("content", "")
-            elif hasattr(last_msg, "content"):
-                query = last_msg.content
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if content and getattr(msg, "type", "") == "human":
+                query = content if isinstance(content, str) else str(content)
 
         # Inject relevant memories into system prompt
         if query:
             memories = select_relevant_memories(query, self.manager.path, max_results=5)
             if memories:
                 memory_context = format_relevant_memories(memories)
-                current_system = request.get("system", "")
-                request["system"] = f"{current_system}\n\n## Relevant Memories\n{memory_context}"
+                current_system = request.system_prompt or ""
+                new_request = request.override(
+                    system_prompt=f"{current_system}\n\n## Relevant Memories\n{memory_context}"
+                )
+                response = handler(new_request)
+                self.manager.extract_and_save(messages, response)
+                return response
 
         # Call the next middleware / LLM
         response = handler(request)

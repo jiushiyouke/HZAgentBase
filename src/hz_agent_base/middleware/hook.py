@@ -1,4 +1,4 @@
-"""Hook middleware - executes lifecycle hooks around tool calls."""
+"""Hook middleware - executes lifecycle hooks around model calls."""
 
 from __future__ import annotations
 
@@ -15,36 +15,33 @@ class HookMiddleware(AgentMiddleware):
     """Executes registered hooks at lifecycle events.
 
     Events:
-        - PRE_TOOL_USE: Before each tool call
-        - POST_TOOL_USE: After each tool call
-        - USER_PROMPT_SUBMIT: When user sends a message
+        - USER_PROMPT_SUBMIT: When user sends a message (before model call)
+        - PRE_TOOL_USE / POST_TOOL_USE: Fired during tool execution (future)
     """
 
     def __init__(self, registry: HookRegistry):
         self.executor = HookExecutor(registry)
 
-    def wrap_model_call(self, request: dict[str, Any], handler) -> dict[str, Any]:
-        """Execute hooks around tool calls."""
-        tool_calls = request.get("tool_calls", [])
+    def wrap_model_call(self, request, handler) -> Any:
+        """Execute hooks around model call."""
+        # Extract user message for hook context
+        messages = request.messages or []
+        user_content = ""
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if content and getattr(msg, "type", "") == "human":
+                user_content = content if isinstance(content, str) else str(content)
 
-        # PRE_TOOL_USE hooks
-        for tool_call in tool_calls:
-            result = self.executor.execute(HookEvent.PRE_TOOL_USE, {
-                "tool": tool_call.get("name", ""),
-                "arguments": tool_call.get("arguments", {}),
+        # USER_PROMPT_SUBMIT hook
+        if user_content:
+            result = self.executor.execute(HookEvent.USER_PROMPT_SUBMIT, {
+                "prompt": user_content,
             })
             if result.blocked:
-                tool_call["result"] = f"Blocked by hook: {result.reason}"
-                tool_call["skip_execution"] = True
+                # Return a synthetic response if hook blocks
+                from langchain_core.messages import AIMessage
+                return {"messages": [AIMessage(content=f"Blocked by hook: {result.reason}")]}
 
-        # Execute the actual tool calls
+        # Call the model
         response = handler(request)
-
-        # POST_TOOL_USE hooks
-        for tool_call in tool_calls:
-            self.executor.execute(HookEvent.POST_TOOL_USE, {
-                "tool": tool_call.get("name", ""),
-                "result": tool_call.get("result"),
-            })
-
         return response

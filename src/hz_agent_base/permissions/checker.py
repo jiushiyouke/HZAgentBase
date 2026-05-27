@@ -35,6 +35,22 @@ class PermissionChecker:
     def __init__(self, settings: PermissionSettings):
         self.settings = settings
 
+    def is_tool_allowed(self, tool_name: str) -> bool:
+        """Quick check if a tool is allowed by deny/allow lists.
+
+        Args:
+            tool_name: Name of the tool.
+
+        Returns:
+            True if the tool is not denied and either in the allow list
+            or the allow list is empty.
+        """
+        if tool_name in self.settings.denied_tools:
+            return False
+        if self.settings.allowed_tools and tool_name not in self.settings.allowed_tools:
+            return False
+        return True
+
     def evaluate(
         self,
         tool_name: str,
