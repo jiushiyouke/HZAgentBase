@@ -50,6 +50,7 @@ Thumbs.db
 # Project specific
 .memory/
 .my_agent_memory/
+.audit/
 *.log
 tool_usage.log
 

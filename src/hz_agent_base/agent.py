@@ -128,7 +128,9 @@ def create_agent(
 
     # 5. Filesystem middleware (audit and change tracking)
     if filesystem:
-        fs_opts = filesystem if isinstance(filesystem, dict) else {}
+        # 默认配置：开启审计、开启变更追踪、日志写入 .audit/audit.jsonl
+        default_fs_opts = {"log_path": ".audit/audit.jsonl"}
+        fs_opts = {**default_fs_opts, **(filesystem if isinstance(filesystem, dict) else {})}
         harness_middleware.append(FilesystemMiddleware(**fs_opts))
 
     # 6. User-provided middleware
