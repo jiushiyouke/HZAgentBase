@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any, Callable, Sequence
 
@@ -11,14 +10,13 @@ from deepagents.graph import CompiledStateGraph
 from deepagents.backends import BackendProtocol
 from langchain_openai import ChatOpenAI
 
+from .config import DEEPSEEK_API_KEY, DEFAULT_MODEL, DEEPSEEK_BASE_URL
 from .middleware import AgentMiddleware
 from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
-
-DEFAULT_MODEL = "deepseek-v4-flash"
 
 
 def _get_model(model: str | Any | None = None) -> Any:
@@ -41,11 +39,10 @@ def _get_model(model: str | Any | None = None) -> Any:
     if isinstance(model, str):
         # DeepSeek uses OpenAI-compatible API
         if "deepseek" in model.lower():
-            api_key = os.environ.get("DEEPSEEK_API_KEY", "not-set")
             return ChatOpenAI(
                 model=model,
-                base_url="https://api.deepseek.com/v1",
-                api_key=api_key,
+                base_url=DEEPSEEK_BASE_URL,
+                api_key=DEEPSEEK_API_KEY,
             )
         # Default to ChatOpenAI for other models
         return ChatOpenAI(model=model)

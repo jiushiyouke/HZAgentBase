@@ -54,5 +54,4 @@ Thumbs.db
 tool_usage.log
 
 # Secrets
-.env
-.env.*
+**/.env
