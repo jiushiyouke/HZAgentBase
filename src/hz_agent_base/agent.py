@@ -16,6 +16,7 @@ from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
 from .middleware.knowledge import KnowledgeMiddleware
+from .middleware.filesystem import FilesystemMiddleware
 from .knowledge.protocol import Retriever
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
@@ -62,6 +63,7 @@ def create_agent(
     memory_path: str | None = None,
     retriever: Retriever | None = None,
     knowledge_top_k: int = 5,
+    filesystem: bool | dict[str, Any] = False,
     middleware: Sequence[AgentMiddleware] | None = None,
     backend: BackendProtocol | None = None,
     **kwargs,
@@ -78,6 +80,10 @@ def create_agent(
         retriever: Knowledge base retriever for RAG. Any object implementing
                    the Retriever protocol (e.g., from hz-knowledge-base).
         knowledge_top_k: Number of knowledge results to retrieve per query.
+        filesystem: Enable file operation audit and change tracking.
+                    - True: enable with defaults (audit=True, track_changes=True)
+                    - dict: pass options (audit, track_changes, workspace, log_path)
+                    - False: disabled (default)
         middleware: Additional custom middleware.
         backend: Filesystem/sandbox backend.
         **kwargs: Additional arguments passed to create_deep_agent().
@@ -105,7 +111,12 @@ def create_agent(
     if retriever is not None:
         harness_middleware.append(KnowledgeMiddleware(retriever, top_k=knowledge_top_k))
 
-    # 5. User-provided middleware
+    # 5. Filesystem middleware (audit and change tracking)
+    if filesystem:
+        fs_opts = filesystem if isinstance(filesystem, dict) else {}
+        harness_middleware.append(FilesystemMiddleware(**fs_opts))
+
+    # 6. User-provided middleware
     if middleware:
         harness_middleware.extend(middleware)
 
