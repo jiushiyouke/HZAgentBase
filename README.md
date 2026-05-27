@@ -169,20 +169,8 @@ agent = create_agent(
 )
 ```
 
-独立项目 `hz-knowledge-base` 提供基于 ChromaDB 的完整实现：
 
-```bash
-pip install hz-knowledge-base
-```
 
-```python
-from hz_knowledge_base import ChromaRetriever
-
-retriever = ChromaRetriever("./knowledge_db")
-retriever.load_directory("./docs/")
-
-agent = create_agent(retriever=retriever)
-```
 
 ## 文件审计
 
