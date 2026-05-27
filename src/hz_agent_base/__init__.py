@@ -17,6 +17,7 @@ from .permissions import PermissionSettings, PermissionMode
 from .hooks import HookRegistry, HookEvent
 from .middleware import AgentMiddleware
 from .knowledge import Retriever, RetrievalResult
+from .coordinator.worker import WorkerConfig
 
 __version__ = "0.1.0"
 
@@ -30,4 +31,5 @@ __all__ = [
     "AgentMiddleware",
     "Retriever",
     "RetrievalResult",
+    "WorkerConfig",
 ]

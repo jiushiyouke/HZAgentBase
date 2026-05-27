@@ -323,11 +323,13 @@ agent = create_agent(
 - [x] 单元测试（知识库 12 个 + 文件审计 20 个）
 - [ ] **独立项目 hz-knowledge-base**（ChromaDB + embedding 实现）
 
-### 阶段六：多 Agent 编排（待开始）
-- [ ] 从 OpenHarness 移植 Coordinator 模式
-- [ ] 实现 TeamRegistry
-- [ ] 包装为 Middleware
-- [ ] 集成测试
+### 阶段六：多 Agent 编排 ✅
+- [x] 从 OpenHarness 移植 Coordinator 模式
+- [x] 实现 TeamRegistry（团队注册和成员管理）
+- [x] 修复 CoordinatorMiddleware（ModelRequest API 适配）
+- [x] 集成到 create_agent()（workers 参数，自动传递 subagents）
+- [x] 导出 WorkerConfig
+- [x] 单元测试（18 个用例）
 
 ### 阶段七：CLI 和示例（待开始）
 - [ ] Click + Rich CLI
@@ -429,7 +431,8 @@ HZAgentBase/
 │   ├── test_memory.py
 │   ├── test_middleware.py
 │   ├── test_knowledge.py
-│   └── test_filesystem.py
+│   ├── test_filesystem.py
+│   └── test_coordinator.py
 └── examples/
     ├── basic_agent.py
     ├── custom_middleware.py

@@ -18,6 +18,8 @@ from .middleware.memory import MemoryMiddleware
 from .middleware.knowledge import KnowledgeMiddleware
 from .middleware.filesystem import FilesystemMiddleware
 from .knowledge.protocol import Retriever
+from .coordinator.worker import WorkerConfig
+from .coordinator.coordinator import CoordinatorMiddleware
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
 
@@ -64,6 +66,7 @@ def create_agent(
     retriever: Retriever | None = None,
     knowledge_top_k: int = 5,
     filesystem: bool | dict[str, Any] = False,
+    workers: list[WorkerConfig] | None = None,
     middleware: Sequence[AgentMiddleware] | None = None,
     backend: BackendProtocol | None = None,
     **kwargs,
@@ -84,6 +87,8 @@ def create_agent(
                     - True: enable with defaults (audit=True, track_changes=True)
                     - dict: pass options (audit, track_changes, workspace, log_path)
                     - False: disabled (default)
+        workers: Worker agent configs for multi-agent orchestration.
+                 Creates a Coordinator with sub-agents.
         middleware: Additional custom middleware.
         backend: Filesystem/sandbox backend.
         **kwargs: Additional arguments passed to create_deep_agent().
@@ -120,17 +125,32 @@ def create_agent(
     if middleware:
         harness_middleware.extend(middleware)
 
+    # 7. Coordinator middleware (multi-agent orchestration)
+    coordinator = None
+    if workers:
+        coordinator = CoordinatorMiddleware(workers)
+        harness_middleware.append(coordinator)
+
     # Resolve model
     resolved_model = _get_model(model)
 
-    return create_deep_agent(
-        model=resolved_model,
-        tools=tools,
-        system_prompt=system_prompt,
-        middleware=harness_middleware,
-        backend=backend,
-        **kwargs,
-    )
+    # 构建 create_deep_agent 参数
+    agent_kwargs: dict[str, Any] = {
+        "model": resolved_model,
+        "tools": tools,
+        "system_prompt": system_prompt,
+        "middleware": harness_middleware,
+        "backend": backend,
+    }
+
+    # 有 workers 时传入 subagents
+    if coordinator:
+        agent_kwargs["subagents"] = coordinator.subagents
+
+    # 用户传入的 kwargs 覆盖默认值
+    agent_kwargs.update(kwargs)
+
+    return create_deep_agent(**agent_kwargs)
 
 
 def run_agent(

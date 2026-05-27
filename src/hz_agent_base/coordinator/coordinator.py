@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from langchain.agents.middleware.types import AgentMiddleware
 from deepagents import SubAgent
@@ -16,18 +16,25 @@ class CoordinatorMiddleware(AgentMiddleware):
 
     Injects worker agent information into the coordinator's context
     and manages team-based orchestration.
+
+    使用方式：
+        workers = [
+            WorkerConfig(name="researcher", prompt="研究助手", tools=["web_search"]),
+            WorkerConfig(name="coder", prompt="编程助手", tools=["write_file"]),
+        ]
+        agent = create_agent(workers=workers)
     """
 
     def __init__(self, workers: list[WorkerConfig]):
         self.workers = workers
         self.team_registry = TeamRegistry()
 
-        # Register workers into teams
+        # 将 worker 注册到对应的 team
         for worker in workers:
             self.team_registry.add_member(worker.team, worker.name)
 
-        # Build sub-agents for Deep Agents
-        self.subagents = [
+        # 构建 Deep Agents 的 subagent 列表
+        self.subagents: list[SubAgent] = [
             SubAgent(
                 name=w.name,
                 prompt=w.prompt,
@@ -37,30 +44,32 @@ class CoordinatorMiddleware(AgentMiddleware):
             for w in workers
         ]
 
-    def wrap_model_call(self, request: dict[str, Any], handler) -> dict[str, Any]:
-        """Inject team context into the coordinator's system prompt."""
-        # Build worker description
+    def wrap_model_call(self, request, handler) -> Any:
+        """将 worker 信息注入协调者的系统提示词。"""
         worker_desc = self._build_worker_description()
+        team_status = self.team_registry.get_status()
 
-        # Inject into system prompt
-        current_system = request.get("system", "")
-        request["system"] = (
-            f"{current_system}\n\n"
-            f"## Available Workers\n"
-            f"{worker_desc}\n\n"
-            f"## Team Status\n"
-            f"{self.team_registry.get_status()}"
+        current_system = request.system_prompt or ""
+        new_request = request.override(
+            system_prompt=(
+                f"{current_system}\n\n"
+                f"## Available Workers\n"
+                f"{worker_desc}\n\n"
+                f"## Team Status\n"
+                f"{team_status}"
+            )
         )
-
-        return handler(request)
+        return handler(new_request)
 
     def _build_worker_description(self) -> str:
-        """Build a description of available workers."""
+        """构建 worker 描述文本。"""
         lines = []
         for w in self.workers:
             tools_str = ", ".join(w.tools) if w.tools else "all tools"
+            # 截断过长的 prompt，避免注入过多内容
+            short_prompt = w.prompt[:100] + "..." if len(w.prompt) > 100 else w.prompt
             lines.append(
-                f"- **{w.name}**: {w.prompt[:100]}... "
+                f"- **{w.name}**: {short_prompt} "
                 f"(tools: {tools_str}, team: {w.team})"
             )
         return "\n".join(lines)
