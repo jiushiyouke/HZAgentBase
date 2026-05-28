@@ -16,7 +16,7 @@ from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
 from .middleware.knowledge import KnowledgeMiddleware
-from .middleware.filesystem import FilesystemMiddleware
+from .middleware.filesystem import FileAuditMiddleware
 from .knowledge.protocol import Retriever
 from .coordinator.worker import WorkerConfig
 from .coordinator.coordinator import CoordinatorMiddleware
@@ -178,7 +178,7 @@ def create_agent(
         # 默认配置：开启审计、开启变更追踪、日志路径从 .env 读取
         default_fs_opts = {"log_path": AUDIT_LOG_PATH}
         fs_opts = {**default_fs_opts, **(filesystem if isinstance(filesystem, dict) else {})}
-        harness_middleware.append(FilesystemMiddleware(**fs_opts))
+        harness_middleware.append(FileAuditMiddleware(**fs_opts))
 
     # 6. User-provided middleware
     if middleware:

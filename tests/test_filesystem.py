@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from langchain_core.messages import HumanMessage, AIMessage
 
 from hz_agent_base.middleware.filesystem import (
-    FilesystemMiddleware,
+    FileAuditMiddleware,
     FileOperation,
     AuditLog,
     FILE_TOOLS,
@@ -174,21 +174,21 @@ class TestAuditLog:
 
 
 # ============================================================
-# FilesystemMiddleware 测试
+# FileAuditMiddleware 测试
 # ============================================================
 
-class TestFilesystemMiddleware:
+class TestFileAuditMiddleware:
     """测试文件系统中间件。"""
 
     def test_default_disabled(self):
         """默认构造应启用审计。"""
-        mw = FilesystemMiddleware()
+        mw = FileAuditMiddleware()
         assert mw.audit is True
         assert mw.track_changes is True
 
     def test_passthrough_when_no_file_tools(self):
         """没有文件操作工具时应直接透传。"""
-        mw = FilesystemMiddleware(audit=False, track_changes=False)
+        mw = FileAuditMiddleware(audit=False, track_changes=False)
         request = make_mock_request(tools=[make_mock_tool("bash")])
         handler = MagicMock(return_value="response")
 
@@ -198,7 +198,7 @@ class TestFilesystemMiddleware:
 
     def test_records_file_operation(self):
         """应记录文件操作。"""
-        mw = FilesystemMiddleware(audit=True, track_changes=False)
+        mw = FileAuditMiddleware(audit=True, track_changes=False)
 
         request = make_mock_request(tools=[make_mock_tool("write_file")])
         response = make_tool_call_response("write_file", {"file_path": "output.txt", "content": "hello"})
@@ -214,7 +214,7 @@ class TestFilesystemMiddleware:
 
     def test_ignores_non_file_tools(self):
         """非文件操作工具不应被记录。"""
-        mw = FilesystemMiddleware(audit=True)
+        mw = FileAuditMiddleware(audit=True)
 
         request = make_mock_request(tools=[make_mock_tool("bash")])
         response = make_tool_call_response("bash", {"command": "ls"})
@@ -226,7 +226,7 @@ class TestFilesystemMiddleware:
 
     def test_audit_disabled(self):
         """审计禁用时不应记录。"""
-        mw = FilesystemMiddleware(audit=False)
+        mw = FileAuditMiddleware(audit=False)
 
         request = make_mock_request(tools=[make_mock_tool("write_file")])
         response = make_tool_call_response("write_file", {"file_path": "test.txt"})
@@ -238,13 +238,13 @@ class TestFilesystemMiddleware:
 
     def test_custom_workspace(self):
         """应支持自定义工作目录。"""
-        mw = FilesystemMiddleware(workspace="/project/src")
+        mw = FileAuditMiddleware(workspace="/project/src")
         assert mw.workspace == "/project/src"
 
     def test_audit_log_with_persistence(self, tmp_path):
         """审计日志应持久化到文件。"""
         log_file = tmp_path / "audit.jsonl"
-        mw = FilesystemMiddleware(audit=True, log_path=str(log_file))
+        mw = FileAuditMiddleware(audit=True, log_path=str(log_file))
 
         request = make_mock_request(tools=[make_mock_tool("edit_file")])
         response = make_tool_call_response("edit_file", {"file_path": "main.py"})
@@ -258,7 +258,7 @@ class TestFilesystemMiddleware:
 
     def test_multiple_operations_logged(self):
         """多次文件操作应全部记录。"""
-        mw = FilesystemMiddleware(audit=True)
+        mw = FileAuditMiddleware(audit=True)
 
         # 模拟响应中有两个文件操作
         tool_call_1 = MagicMock()

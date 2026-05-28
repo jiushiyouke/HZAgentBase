@@ -86,7 +86,7 @@ cp .env-example .env
 2. HookMiddleware         ← 生命周期事件（需传入 hooks 参数）
 3. MemoryMiddleware       ← 记忆注入/提取（需传入 memory_path）
 4. KnowledgeMiddleware    ← 知识库 RAG 检索（需传入 retriever）
-5. FilesystemMiddleware   ← 文件审计 + 变更追踪（需传入 filesystem=True）
+5. FileAuditMiddleware   ← 文件审计 + 变更追踪（需传入 filesystem=True）
 6. [用户自定义 Middleware] ← 通过 middleware 参数传入
 7. CoordinatorMiddleware  ← 多 Agent 编排（需传入 workers）
 ```

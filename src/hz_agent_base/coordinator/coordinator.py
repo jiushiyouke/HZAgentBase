@@ -40,15 +40,18 @@ class CoordinatorMiddleware(AgentMiddleware):
             self.team_registry.add_member(worker.team, worker.name)
 
         # 构建 Deep Agents 的 subagent 列表
-        self.subagents: list[SubAgent] = [
-            SubAgent(
+        # 注意：model 为 None 时不传入，让 deepagents 使用主 agent 的 model
+        self.subagents: list[SubAgent] = []
+        for w in workers:
+            sub: SubAgent = SubAgent(
                 name=w.name,
-                prompt=self._resolve_prompt(w),
+                description=w.prompt[:80] if w.prompt else w.name,
+                system_prompt=self._resolve_prompt(w),
                 tools=w.tools if w.tools else None,
-                model=w.model,
             )
-            for w in workers
-        ]
+            if w.model is not None:
+                sub["model"] = w.model
+            self.subagents.append(sub)
 
     def wrap_model_call(self, request, handler) -> Any:
         """将 worker 信息注入协调者的系统提示词。"""

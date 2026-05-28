@@ -329,7 +329,7 @@ class MyMiddleware(AgentMiddleware):
 
 ## 文件审计
 
-### `FilesystemMiddleware`
+### `FileAuditMiddleware`
 
 通过 `create_agent(filesystem=True)` 启用，或传入配置字典：
 

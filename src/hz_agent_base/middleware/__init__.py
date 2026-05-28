@@ -5,7 +5,7 @@ HZAgentBase 的中间件管道按以下顺序执行：
 2. HookMiddleware — 生命周期事件
 3. MemoryMiddleware — 记忆注入/提取
 4. KnowledgeMiddleware — 知识库 RAG 检索
-5. FilesystemMiddleware — 文件审计
+5. FileAuditMiddleware — 文件审计
 6. [用户自定义 Middleware]
 7. CoordinatorMiddleware — 多 Agent 编排
 """
@@ -16,7 +16,7 @@ from .permission import PermissionMiddleware
 from .hook import HookMiddleware
 from .memory import MemoryMiddleware
 from .knowledge import KnowledgeMiddleware
-from .filesystem import FilesystemMiddleware
+from .filesystem import FileAuditMiddleware
 
 __all__ = [
     "AgentMiddleware",
@@ -24,5 +24,5 @@ __all__ = [
     "HookMiddleware",
     "MemoryMiddleware",
     "KnowledgeMiddleware",
-    "FilesystemMiddleware",
+    "FileAuditMiddleware",
 ]

@@ -11,14 +11,12 @@ workers = [
     WorkerConfig(
         name="researcher",
         prompt="你是研究助手，负责搜索和分析信息。回答要引用来源。",
-        tools=["web_search", "read_file", "glob"],
         team="research",
         color="green",
     ),
     WorkerConfig(
         name="coder",
-        prompt="你是编程助手，负责编写和修改代码。代码要有注释。",
-        tools=["write_file", "edit_file", "bash"],
+        prompt="你是编程助手，负责编写和修改代码。",
         team="development",
         color="blue",
     ),

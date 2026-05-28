@@ -58,7 +58,7 @@ HZAgentBase 是一个可复用的 Agent Harness 基础设施库，为上层业�
 │  │  2. HookMiddleware        ← 生命周期事件             │   │
 │  │  3. MemoryMiddleware      ← 记忆注入/提取            │   │
 │  │  4. KnowledgeMiddleware   ← 知识库 RAG 检索          │   │
-│  │  5. FilesystemMiddleware  ← 文件审计 + 变更追踪      │   │
+│  │  5. FileAuditMiddleware  ← 文件审计 + 变更追踪      │   │
 │  │  6. CoordinatorMiddleware ← 多 Agent 编排            │   │
 │  │  7. [用户自定义 Middleware]                           │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -351,7 +351,7 @@ agent = create_agent(
 - [x] 定义 Retriever 协议（参考 LlamaIndex BaseRetriever）
 - [x] 实现 KnowledgeMiddleware
 - [x] 集成到 create_agent()（retriever 参数）
-- [x] 实现 FilesystemMiddleware（审计 + 变更追踪）
+- [x] 实现 FileAuditMiddleware（审计 + 变更追踪）
 - [x] 集成到 create_agent()（filesystem 参数，可开关）
 - [x] 审计日志支持 JSONL 持久化
 - [x] 单元测试（知识库 12 个 + 文件审计 20 个）

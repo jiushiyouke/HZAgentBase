@@ -93,7 +93,7 @@ class AuditLog:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-class FilesystemMiddleware(AgentMiddleware):
+class FileAuditMiddleware(AgentMiddleware):
     """文件操作审计和变更追踪中间件。
 
     功能：
