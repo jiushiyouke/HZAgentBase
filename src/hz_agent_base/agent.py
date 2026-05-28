@@ -83,13 +83,22 @@ def _get_model(model: str | Any | None = None) -> Any:
                 "pip install langchain-google-genai"
             )
 
-    # 以下均为 OpenAI 兼容 API（DeepSeek、OpenAI、Ollama 等）
+    # DeepSeek — 使用 langchain-deepseek 官方包（支持 reasoning_content）
+    if "deepseek" in model_lower:
+        try:
+            from langchain_deepseek import ChatDeepSeek
+            base_url = MODEL_BASE_URL or _PROVIDER_DEFAULT_URLS["deepseek"]
+            return ChatDeepSeek(model=model, api_key=MODEL_API_KEY, base_url=base_url)
+        except ImportError:
+            # 降级到 ChatOpenAI（不支持 reasoning_content）
+            base_url = MODEL_BASE_URL or _PROVIDER_DEFAULT_URLS["deepseek"]
+            return ChatOpenAI(model=model, api_key=MODEL_API_KEY, base_url=base_url)
+
+    # 以下均为 OpenAI 兼容 API（OpenAI、Ollama 等）
     # 确定 base_url：用户显式设置 > 提供商默认 > 不传（让 SDK 自己决定）
     base_url = MODEL_BASE_URL
     if not base_url:
-        if "deepseek" in model_lower:
-            base_url = _PROVIDER_DEFAULT_URLS["deepseek"]
-        elif any(model_lower.startswith(p) for p in ("gpt-", "o1-", "o3-")):
+        if any(model_lower.startswith(p) for p in ("gpt-", "o1-", "o3-")):
             base_url = _PROVIDER_DEFAULT_URLS["openai"]
 
     kwargs: dict[str, Any] = {"model": model, "api_key": MODEL_API_KEY}

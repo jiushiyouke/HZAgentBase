@@ -18,16 +18,16 @@ class TestGetModel:
         assert result is mock_model
 
     def test_returns_default_when_none(self):
-        """传入 None 时应返回默认模型。"""
-        with patch("hz_agent_base.agent.ChatOpenAI") as mock_cls:
+        """传入 None 时应返回默认模型（使用 ChatDeepSeek）。"""
+        with patch("langchain_deepseek.ChatDeepSeek") as mock_cls:
             mock_cls.return_value = MagicMock()
             _get_model(None)
             # 应该用默认模型名创建
             mock_cls.assert_called()
 
     def test_deepseek_model_uses_base_url(self):
-        """deepseek 模型应使用专用 base_url。"""
-        with patch("hz_agent_base.agent.ChatOpenAI") as mock_cls:
+        """deepseek 模型应使用 ChatDeepSeek 和专用 base_url。"""
+        with patch("langchain_deepseek.ChatDeepSeek") as mock_cls:
             mock_cls.return_value = MagicMock()
             _get_model("deepseek-v4-flash")
             call_kwargs = mock_cls.call_args[1]
