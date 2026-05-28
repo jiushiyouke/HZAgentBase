@@ -89,18 +89,29 @@ class FileLock:
         self._fd = None
 
     def __enter__(self):
+        import time as _time
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         self._fd = open(self._lock_path, "w")
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(self._fd.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self._fd.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            self._fd.close()
-            raise
+        # 重试机制：Windows msvcrt.locking 高并发时可能报死锁错误
+        max_retries = 10
+        for attempt in range(max_retries):
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(self._fd.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self._fd.fileno(), fcntl.LOCK_EX)
+                return self
+            except OSError:
+                if attempt < max_retries - 1:
+                    _time.sleep(0.01 * (attempt + 1))
+                    # 重新打开文件
+                    self._fd.close()
+                    self._fd = open(self._lock_path, "w")
+                else:
+                    self._fd.close()
+                    raise
         return self
 
     def __exit__(self, *args):
