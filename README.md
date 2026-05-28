@@ -238,6 +238,61 @@ agent = create_agent(
 result = run_agent(agent, "研究 Python logging 最佳实践，然后写个配置文件")
 ```
 
+## 技能系统（Skills）
+
+Skills 是给 Agent 注入专业能力的机制。每个 skill 是一个目录，核心是 `SKILL.md` 文件，deepagents 的 `SkillsMiddleware` 会自动加载并注入到系统提示词。
+
+**目录结构：**
+```
+skills/
+├── coding/
+│   └── SKILL.md          # 编码规范、代码风格等指令
+├── research/
+│   └── SKILL.md          # 研究方法、引用格式等指令
+└── security/
+    └── SKILL.md          # 安全审查规则
+```
+
+**SKILL.md 示例：**
+```markdown
+---
+name: coding-standards
+description: Python 编码规范和最佳实践
+---
+
+## 编码规范
+- 使用 type hints
+- 函数不超过 50 行
+- 每个公开方法必须有 docstring
+```
+
+**使用方式：**
+```python
+from hz_agent_base import create_agent, WorkerConfig
+
+# 主 Agent 加载技能
+agent = create_agent(
+    skills=["./skills/coding/", "./skills/security/"],
+)
+
+# 每个 Worker 独立技能
+workers = [
+    WorkerConfig(
+        name="coder",
+        prompt="你是编程助手",
+        skills=["./skills/coding/"],
+    ),
+    WorkerConfig(
+        name="researcher",
+        prompt="你是研究助手",
+        skills=["./skills/research/"],
+    ),
+]
+agent = create_agent(workers=workers)
+```
+
+加载机制：deepagents 会扫描目录下的子目录，读取 `SKILL.md` 的名称和描述注入系统提示词（渐进式披露：先展示摘要，Agent 需要时再读取完整内容）。
+
 ## 多用户场景
 
 HZAgentBase 支持多用户并发使用，用户之间完全隔离：
