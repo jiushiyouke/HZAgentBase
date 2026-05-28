@@ -1,10 +1,9 @@
-"""工具扩展包。
+"""工具扩展包 — 提供工具基类的便捷导入。
 
-薄封装层，re-export Deep Agents 的 BaseTool。
-业务项目可在此基础上定义自定义工具。
+HZAgentBase 不封装自己的工具，而是透传 LangChain 的 BaseTool。
+自定义工具直接继承 BaseTool 即可接入 Agent。
 """
 
-# Re-export Deep Agents 基础工具类
-from deepagents.tools import BaseTool
+from langchain_core.tools import BaseTool
 
 __all__ = ["BaseTool"]
