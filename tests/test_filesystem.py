@@ -141,7 +141,7 @@ class TestAuditLog:
     def test_persist_creates_jsonl(self, tmp_path):
         """持久化应创建 JSONL 文件。"""
         log_file = tmp_path / "audit.jsonl"
-        log = AuditLog(log_path=str(log_file))
+        log = AuditLog(log_path=str(log_file), buffer_size=100)
 
         log.add(FileOperation(
             timestamp="2026-01-01T00:00:00",
@@ -149,6 +149,7 @@ class TestAuditLog:
             file_path="test.txt",
             operation="write",
         ))
+        log.flush()  # 缓冲模式需要手动 flush
 
         assert log_file.exists()
         lines = log_file.read_text(encoding="utf-8").strip().split("\n")
@@ -159,7 +160,7 @@ class TestAuditLog:
     def test_persist_appends(self, tmp_path):
         """多次写入应追加而非覆盖。"""
         log_file = tmp_path / "audit.jsonl"
-        log = AuditLog(log_path=str(log_file))
+        log = AuditLog(log_path=str(log_file), buffer_size=100)
 
         for i in range(3):
             log.add(FileOperation(
@@ -168,6 +169,7 @@ class TestAuditLog:
                 file_path=f"file-{i}.txt",
                 operation="write",
             ))
+        log.flush()  # 缓冲模式需要手动 flush
 
         lines = log_file.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 3
@@ -251,6 +253,7 @@ class TestFileAuditMiddleware:
 
         handler = MagicMock(return_value=response)
         mw.wrap_model_call(request, handler)
+        mw.audit_log.flush()  # 缓冲模式需要手动 flush
 
         assert log_file.exists()
         record = json.loads(log_file.read_text(encoding="utf-8").strip())

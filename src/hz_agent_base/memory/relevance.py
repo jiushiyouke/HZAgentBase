@@ -6,6 +6,8 @@
 - 内容匹配: 1 倍权重
 
 按查询词归一化后排序，返回 top-N 结果。
+
+高并发优化：使用 MemoryCache 缓存记忆条目，避免每次请求都读磁盘。
 """
 
 from __future__ import annotations
@@ -14,6 +16,22 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+from .cache import MemoryCache
+
+# 模块级全局缓存（所有调用者共享）
+_global_cache: MemoryCache | None = None
+_cache_lock = __import__("threading").Lock()
+
+
+def get_memory_cache(max_size: int = 1000, ttl_seconds: int = 60) -> MemoryCache:
+    """获取全局记忆缓存（单例）。"""
+    global _global_cache
+    if _global_cache is None:
+        with _cache_lock:
+            if _global_cache is None:
+                _global_cache = MemoryCache(max_size=max_size, ttl_seconds=ttl_seconds)
+    return _global_cache
 
 
 @dataclass
@@ -44,6 +62,7 @@ def select_relevant_memories(
     memory_path: str | Path,
     max_results: int = 5,
     selector: Callable[[str, list[MemoryEntry]], list[MemoryEntry]] | None = None,
+    cache: MemoryCache | None = None,
 ) -> list[MemoryEntry]:
     """根据查询选择最相关的记忆。
 
@@ -52,6 +71,7 @@ def select_relevant_memories(
         memory_path: 记忆存储目录路径。
         max_results: 最大返回数量。
         selector: 可选的自定义选择函数，用于二次过滤。
+        cache: 记忆缓存实例。None 时使用全局缓存。
 
     Returns:
         按相关性排序的记忆列表（过滤掉评分为 0 的）。
@@ -60,25 +80,37 @@ def select_relevant_memories(
     if not memory_path.exists():
         return []
 
-    # 加载所有记忆文件
-    entries = _load_memories(memory_path)
+    # 使用缓存加载记忆（避免每次请求都读磁盘）
+    if cache is None:
+        cache = get_memory_cache()
+    entries = _load_memories_cached(memory_path, cache)
     if not entries:
         return []
 
-    # 计算相关性评分
+    # 计算相关性评分（每次重新计算，因为查询不同）
     query_tokens = _tokenize(query)
+    scored = []
     for entry in entries:
-        entry.score = _compute_score(query_tokens, entry)
+        # 创建副本避免修改缓存中的对象
+        scored_entry = MemoryEntry(
+            path=entry.path,
+            name=entry.name,
+            description=entry.description,
+            memory_type=entry.memory_type,
+            content=entry.content,
+            score=_compute_score(query_tokens, entry),
+        )
+        scored.append(scored_entry)
 
     # 按评分降序排序
-    entries.sort(key=lambda e: e.score, reverse=True)
+    scored.sort(key=lambda e: e.score, reverse=True)
 
     # 应用自定义选择器
     if selector:
-        entries = selector(query, entries)
+        scored = selector(query, scored)
 
     # 返回 top 结果，过滤掉评分为 0 的
-    return [e for e in entries[:max_results] if e.score > 0]
+    return [e for e in scored[:max_results] if e.score > 0]
 
 
 def format_relevant_memories(memories: list[MemoryEntry]) -> str:
@@ -95,6 +127,23 @@ def format_relevant_memories(memories: list[MemoryEntry]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _load_memories_cached(memory_path: Path, cache: MemoryCache) -> list[MemoryEntry]:
+    """从缓存或磁盘加载记忆条目。
+
+    缓存 key 使用目录路径的 str 形式。
+    缓存 value 是整个目录的记忆列表。
+    """
+    cache_key = f"dir:{memory_path.resolve()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # 缓存未命中，从磁盘加载
+    entries = _load_memories(memory_path)
+    cache.put(cache_key, entries)
+    return entries
 
 
 def _load_memories(memory_path: Path) -> list[MemoryEntry]:
@@ -179,3 +228,10 @@ def _compute_score(query_tokens: set[str], entry: MemoryEntry) -> float:
         total = total / len(query_tokens)
 
     return total
+
+
+def invalidate_memory_cache(memory_path: str | Path) -> None:
+    """使指定目录的记忆缓存失效（写入新记忆后调用）。"""
+    cache = get_memory_cache()
+    cache_key = f"dir:{Path(memory_path).resolve()}"
+    cache.invalidate(cache_key)

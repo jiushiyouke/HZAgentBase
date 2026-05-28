@@ -51,6 +51,8 @@ class CoordinatorMiddleware(AgentMiddleware):
             )
             if w.model is not None:
                 sub["model"] = w.model
+            if w.skills:
+                sub["skills"] = w.skills
             self.subagents.append(sub)
 
     def wrap_model_call(self, request, handler) -> Any:

@@ -16,7 +16,7 @@ from .schemas import (
     AgentHookDefinition,
 )
 from .registry import HookRegistry
-from .executor import HookExecutor, AggregatedHookResult
+from .executor import HookExecutor, AggregatedHookResult, get_hook_pool, set_hook_pool
 
 __all__ = [
     "HookEvent",
@@ -28,4 +28,6 @@ __all__ = [
     "HookRegistry",
     "HookExecutor",
     "AggregatedHookResult",
+    "get_hook_pool",
+    "set_hook_pool",
 ]

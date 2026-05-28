@@ -1,8 +1,14 @@
-"""Filesystem middleware — 文件操作审计和变更追踪。"""
+"""Filesystem middleware — 文件操作审计和变更追踪。
+
+高并发改造：批量缓冲写入 + 内存上限（deque maxlen）。
+"""
 
 from __future__ import annotations
 
 import json
+import threading
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -42,23 +48,72 @@ class FileOperation:
     success: bool = True
 
 
-@dataclass
 class AuditLog:
     """审计日志，记录所有文件操作。
 
-    Attributes:
-        operations: 操作记录列表。
+    高并发改造：
+    - operations 使用 deque(maxlen) 防止内存无限增长
+    - 日志写入使用缓冲区，满或超时才批量写磁盘
+    - 使用 threading.Lock 保证线程安全
+
+    Args:
         log_path: 日志持久化路径（空则不持久化）。
+        max_operations: 内存中最多保留的操作记录数。
+        buffer_size: 缓冲区满多少条后写入磁盘。
+        flush_interval: 缓冲区最长多久写入一次（秒）。
     """
 
-    operations: list[FileOperation] = field(default_factory=list)
-    log_path: str = ""
+    def __init__(
+        self,
+        log_path: str = "",
+        max_operations: int = 10000,
+        buffer_size: int = 100,
+        flush_interval: float = 5.0,
+    ):
+        self.operations: deque[FileOperation] = deque(maxlen=max_operations)
+        self.log_path = log_path
+        self._buffer_size = buffer_size
+        self._flush_interval = flush_interval
+        self._buffer: list[str] = []
+        self._last_flush = time.time()
+        self._lock = threading.Lock()
 
     def add(self, op: FileOperation) -> None:
-        """添加一条操作记录。"""
+        """添加一条操作记录（内存 + 缓冲区）。"""
         self.operations.append(op)
         if self.log_path:
-            self._persist(op)
+            record = {
+                "timestamp": op.timestamp,
+                "tool_name": op.tool_name,
+                "file_path": op.file_path,
+                "operation": op.operation,
+                "thread_id": op.thread_id,
+                "success": op.success,
+            }
+            line = json.dumps(record, ensure_ascii=False) + "\n"
+            with self._lock:
+                self._buffer.append(line)
+                # 缓冲区满或超时，批量写入
+                if len(self._buffer) >= self._buffer_size:
+                    self._flush()
+                elif time.time() - self._last_flush >= self._flush_interval:
+                    self._flush()
+
+    def flush(self) -> None:
+        """手动刷新缓冲区（外部调用，如 Agent 关闭时）。"""
+        with self._lock:
+            self._flush()
+
+    def _flush(self) -> None:
+        """批量写入磁盘（需在锁内调用）。"""
+        if not self._buffer:
+            return
+        log_file = Path(self.log_path)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.writelines(self._buffer)
+        self._buffer.clear()
+        self._last_flush = time.time()
 
     def query(
         self,
@@ -68,7 +123,7 @@ class AuditLog:
         thread_id: str | None = None,
     ) -> list[FileOperation]:
         """按条件查询操作记录。"""
-        results = self.operations
+        results = list(self.operations)
         if file_path:
             results = [op for op in results if op.file_path == file_path]
         if operation:
@@ -76,21 +131,6 @@ class AuditLog:
         if thread_id:
             results = [op for op in results if op.thread_id == thread_id]
         return results
-
-    def _persist(self, op: FileOperation) -> None:
-        """追加写入日志文件（JSONL 格式）。"""
-        log_file = Path(self.log_path)
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        record = {
-            "timestamp": op.timestamp,
-            "tool_name": op.tool_name,
-            "file_path": op.file_path,
-            "operation": op.operation,
-            "thread_id": op.thread_id,
-            "success": op.success,
-        }
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 class FileAuditMiddleware(AgentMiddleware):

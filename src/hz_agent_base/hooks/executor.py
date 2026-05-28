@@ -5,6 +5,8 @@
 - HttpHook: 通过 httpx 发送 HTTP POST
 - PromptHook: 通过 LLM 验证条件
 - AgentHook: 通过子 Agent 深度验证
+
+高并发改造：全局共享线程池，Hook 并行执行。
 """
 
 from __future__ import annotations
@@ -12,6 +14,8 @@ from __future__ import annotations
 import json
 import subprocess
 import fnmatch
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,8 +64,36 @@ class AggregatedHookResult:
         return [r.reason for r in self.results if r.blocked]
 
 
+# 模块级全局线程池（所有 HookExecutor 共享，线程数可控）
+_global_hook_pool: ThreadPoolExecutor | None = None
+_pool_lock = threading.Lock()
+
+
+def get_hook_pool(max_workers: int = 20) -> ThreadPoolExecutor:
+    """获取全局共享的 Hook 线程池（单例）。
+
+    Args:
+        max_workers: 线程池大小，默认 20。
+                     1000 个 Agent 共享此池，线程数不随 Agent 数增长。
+    """
+    global _global_hook_pool
+    if _global_hook_pool is None:
+        with _pool_lock:
+            if _global_hook_pool is None:
+                _global_hook_pool = ThreadPoolExecutor(max_workers=max_workers)
+    return _global_hook_pool
+
+
+def set_hook_pool(pool: ThreadPoolExecutor | None) -> None:
+    """设置全局线程池（用于测试或自定义配置）。"""
+    global _global_hook_pool
+    _global_hook_pool = pool
+
+
 class HookExecutor:
     """执行 Hook 并聚合结果。
+
+    高并发改造：使用全局共享线程池并行执行多个 Hook。
 
     Args:
         registry: Hook 注册表。
@@ -79,7 +111,7 @@ class HookExecutor:
         payload: dict[str, Any],
         tool_name: str | None = None,
     ) -> AggregatedHookResult:
-        """执行事件匹配的所有 Hook。
+        """并行执行事件匹配的所有 Hook。
 
         Args:
             event: 事件类型。
@@ -90,19 +122,47 @@ class HookExecutor:
             聚合的 Hook 执行结果。
         """
         hooks = self.registry.get_hooks(event)
-        results: list[HookResult] = []
 
+        # 过滤匹配的 hooks
+        matched = []
         for hook in hooks:
-            # 检查 matcher 模式是否匹配工具名
             if hook.matcher and tool_name:
                 if not fnmatch.fnmatch(tool_name, hook.matcher):
                     continue
+            matched.append(hook)
 
-            result = self._execute_single(hook, payload)
+        if not matched:
+            return AggregatedHookResult(results=[])
+
+        # 只有一个 hook 时直接执行，不走线程池
+        if len(matched) == 1:
+            result = self._execute_single(matched[0], payload)
+            return AggregatedHookResult(results=[result])
+
+        # 多个 hook 并行执行
+        pool = get_hook_pool()
+        futures = {
+            pool.submit(self._execute_single, hook, payload): hook
+            for hook in matched
+        }
+
+        results: list[HookResult] = []
+        for future in as_completed(futures):
+            hook = futures[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                result = HookResult(
+                    success=False,
+                    blocked=hook.block_on_failure,
+                    reason=f"Hook execution error: {e}",
+                )
             results.append(result)
 
-            # 如果 Hook 阻止了操作且设置了 block_on_failure，短路退出
+            # 任一 hook 阻止则取消剩余
             if result.blocked and hook.block_on_failure:
+                for f in futures:
+                    f.cancel()
                 break
 
         return AggregatedHookResult(results=results)
