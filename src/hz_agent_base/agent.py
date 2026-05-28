@@ -123,6 +123,7 @@ def create_agent(
     workers: list[WorkerConfig] | None = None,
     middleware: Sequence[AgentMiddleware] | None = None,
     backend: BackendProtocol | None = None,
+    skills: list[str] | None = None,
     **kwargs,
 ) -> CompiledStateGraph:
     """Create an agent with HZAgentBase harness.
@@ -207,6 +208,10 @@ def create_agent(
         "middleware": harness_middleware,
         "backend": backend,
     }
+
+    # 技能目录列表
+    if skills:
+        agent_kwargs["skills"] = skills
 
     # 有 workers 时传入 subagents
     if coordinator:

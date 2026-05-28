@@ -7,12 +7,12 @@
 ## 功能特性
 
 - **权限系统** — 三种模式（DEFAULT / PLAN / FULL_AUTO），细粒度工具调用控制
-- **Hook 系统** — 生命周期事件钩子（4 种类型：Command / Http / Prompt / Agent）
-- **记忆系统** — 基于文件的持久化跨会话记忆，支持相关性搜索和自动提取
+- **Hook 系统** — 生命周期事件钩子（4 种类型：Command / Http / Prompt / Agent），全局线程池并行执行
+- **记忆系统** — 基于文件的持久化跨会话记忆，LRU 缓存 + 文件锁，支持相关性搜索和自动提取
 - **知识库 RAG** — 通过 Retriever 协议接入任意知识库实现，松耦合设计
-- **文件审计** — 文件操作审计日志 + 变更追踪，支持 JSONL 持久化
+- **文件审计** — 文件操作审计日志 + 变更追踪，批量缓冲写入，支持 JSONL 持久化
 - **提示词管理** — 目录式提示词加载（base.md + rules/*.md），支持共享规则
-- **多 Agent 编排** — Coordinator / Worker 模式，每个 worker 独立提示词和工具集
+- **多 Agent 编排** — Coordinator / Worker 模式，每个 worker 独立提示词、工具集和技能
 - **多用户隔离** — 基于 LangGraph thread_id 的状态隔离，同一 agent 实例可并发服务多个用户
 - **可插拔后端** — 由 Deep Agents 提供，支持本地 / 沙箱 / 远程执行环境
 - **CLI 工具** — 命令行交互界面
@@ -339,6 +339,7 @@ hz-agent version
 | `workers` | `list[WorkerConfig] \| None` | Worker 配置列表，启用多 Agent 编排 |
 | `middleware` | `Sequence[AgentMiddleware] \| None` | 自定义中间件列表 |
 | `backend` | `BackendProtocol \| None` | 文件系统/沙箱后端 |
+| `skills` | `list[str] \| None` | 技能目录列表，由 SkillsMiddleware 加载 |
 
 ## 项目结构
 

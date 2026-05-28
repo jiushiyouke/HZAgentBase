@@ -27,3 +27,4 @@ class WorkerConfig:
     model: str | None = None
     team: str = "default"
     color: str = "blue"
+    skills: list[str] = field(default_factory=list)

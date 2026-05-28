@@ -1,4 +1,7 @@
-"""Memory manager - handles persistent memory storage."""
+"""Memory manager - handles persistent memory storage.
+
+高并发改造：写入时使用 FileLock 防止竞态，写入后自动使缓存失效。
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,9 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from .cache import FileLock
+from .relevance import invalidate_memory_cache
 
 
 class MemoryManager:
@@ -44,16 +50,19 @@ class MemoryManager:
         slug = self._title_to_slug(title)
         filepath = self.path / f"{slug}.md"
 
-        # Check if memory already exists (dedup by content signature)
-        signature = self._content_signature(content)
-        if filepath.exists():
-            existing = filepath.read_text(encoding="utf-8")
-            if self._content_signature(existing) == signature:
-                return filepath  # Already exists with same content
+        # 使用文件锁防止并发写入竞态
+        lock_path = self.path / ".memory.lock"
+        with FileLock(lock_path):
+            # Check if memory already exists (dedup by content signature)
+            signature = self._content_signature(content)
+            if filepath.exists():
+                existing = filepath.read_text(encoding="utf-8")
+                if self._content_signature(existing) == signature:
+                    return filepath  # Already exists with same content
 
-        # Build frontmatter
-        tags_str = ", ".join(tags) if tags else ""
-        frontmatter = f"""---
+            # Build frontmatter
+            tags_str = ", ".join(tags) if tags else ""
+            frontmatter = f"""---
 name: {slug}
 description: {description or title}
 metadata:
@@ -63,14 +72,17 @@ metadata:
   signature: {signature}
 ---"""
 
-        # Write memory file
-        filepath.write_text(
-            f"{frontmatter}\n\n{content}\n",
-            encoding="utf-8",
-        )
+            # Write memory file
+            filepath.write_text(
+                f"{frontmatter}\n\n{content}\n",
+                encoding="utf-8",
+            )
 
-        # Update index
-        self._update_index(slug, description or title)
+            # Update index
+            self._update_index(slug, description or title)
+
+        # 写入完成后使缓存失效
+        invalidate_memory_cache(self.path)
 
         return filepath
 
