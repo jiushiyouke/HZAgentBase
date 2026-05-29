@@ -1,11 +1,15 @@
 """Filesystem middleware — 文件操作审计和变更追踪。
 
 高并发改造：批量缓冲写入 + 内存上限（deque maxlen）。
+安全改造：HMAC 签名 + workspace 限制。
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import threading
 import time
 from collections import deque
@@ -56,11 +60,17 @@ class AuditLog:
     - 日志写入使用缓冲区，满或超时才批量写磁盘
     - 使用 threading.Lock 保证线程安全
 
+    安全改造：
+    - 每条日志记录追加 HMAC-SHA256 签名
+    - 提供 verify_log() 校验日志完整性
+    - 签名密钥从环境变量 AUDIT_HMAC_KEY 读取
+
     Args:
         log_path: 日志持久化路径（空则不持久化）。
         max_operations: 内存中最多保留的操作记录数。
         buffer_size: 缓冲区满多少条后写入磁盘。
         flush_interval: 缓冲区最长多久写入一次（秒）。
+        hmac_key: HMAC 签名密钥。None 时从环境变量 AUDIT_HMAC_KEY 读取。
     """
 
     def __init__(
@@ -69,6 +79,7 @@ class AuditLog:
         max_operations: int = 10000,
         buffer_size: int = 100,
         flush_interval: float = 5.0,
+        hmac_key: bytes | None = None,
     ):
         self.operations: deque[FileOperation] = deque(maxlen=max_operations)
         self.log_path = log_path
@@ -77,6 +88,20 @@ class AuditLog:
         self._buffer: list[str] = []
         self._last_flush = time.time()
         self._lock = threading.Lock()
+        # HMAC 签名密钥
+        if hmac_key is not None:
+            self._hmac_key = hmac_key
+        else:
+            env_key = os.environ.get("AUDIT_HMAC_KEY", "")
+            self._hmac_key = env_key.encode() if env_key else b""
+
+    def _sign_record(self, record_json: str) -> str:
+        """为日志记录生成 HMAC-SHA256 签名。"""
+        if not self._hmac_key:
+            return record_json + "\n"
+        sig = hmac.new(self._hmac_key, record_json.encode(), hashlib.sha256).hexdigest()[:16]
+        # 在 JSON 末尾追加签名字段
+        return record_json[:-1] + f',"__sig":"{sig}"}}\n'
 
     def add(self, op: FileOperation) -> None:
         """添加一条操作记录（内存 + 缓冲区）。"""
@@ -90,7 +115,8 @@ class AuditLog:
                 "thread_id": op.thread_id,
                 "success": op.success,
             }
-            line = json.dumps(record, ensure_ascii=False) + "\n"
+            record_json = json.dumps(record, ensure_ascii=False)
+            line = self._sign_record(record_json)
             with self._lock:
                 self._buffer.append(line)
                 # 缓冲区满或超时，批量写入
@@ -114,6 +140,46 @@ class AuditLog:
             f.writelines(self._buffer)
         self._buffer.clear()
         self._last_flush = time.time()
+
+    def verify_log(self, log_path: str | None = None) -> tuple[bool, list[str]]:
+        """校验审计日志的完整性。
+
+        Args:
+            log_path: 日志文件路径。None 时使用 self.log_path。
+
+        Returns:
+            (is_valid, errors) 元组。is_valid 为 True 表示所有记录签名正确。
+        """
+        path = Path(log_path or self.log_path)
+        if not path.exists():
+            return True, []
+
+        if not self._hmac_key:
+            return True, ["HMAC key not configured, skipping verification"]
+
+        errors = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    sig = record.pop("__sig", None)
+                    if sig is None:
+                        errors.append(f"Line {line_num}: missing signature")
+                        continue
+                    # 重新计算签名
+                    record_json = json.dumps(record, ensure_ascii=False)
+                    expected_sig = hmac.new(
+                        self._hmac_key, record_json.encode(), hashlib.sha256
+                    ).hexdigest()[:16]
+                    if sig != expected_sig:
+                        errors.append(f"Line {line_num}: signature mismatch")
+                except json.JSONDecodeError:
+                    errors.append(f"Line {line_num}: invalid JSON")
+
+        return len(errors) == 0, errors
 
     def query(
         self,
@@ -183,6 +249,17 @@ class FileAuditMiddleware(AgentMiddleware):
 
         return response
 
+    def _is_in_workspace(self, file_path: str) -> bool:
+        """检查文件路径是否在允许的工作目录内。"""
+        if not self.workspace:
+            return True
+        try:
+            resolved = Path(file_path).resolve()
+            workspace_resolved = Path(self.workspace).resolve()
+            return str(resolved).startswith(str(workspace_resolved))
+        except Exception:
+            return False
+
     def _extract_and_log(self, response: Any, thread_id: str) -> None:
         """从 agent 响应中提取文件操作并记录到审计日志。"""
         messages = response.get("messages", []) if isinstance(response, dict) else []
@@ -197,6 +274,20 @@ class FileAuditMiddleware(AgentMiddleware):
 
                 args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
                 file_path = args.get("file_path", "") or args.get("path", "")
+
+                # workspace 限制检查
+                if file_path and not self._is_in_workspace(file_path):
+                    # 超出 workspace 范围，记录但标记为失败
+                    op = FileOperation(
+                        timestamp=datetime.now().isoformat(),
+                        tool_name=tool_name,
+                        file_path=file_path,
+                        operation=_classify_operation(tool_name),
+                        thread_id=thread_id,
+                        success=False,
+                    )
+                    self.audit_log.add(op)
+                    continue
 
                 # 判断操作类型
                 operation = _classify_operation(tool_name)
