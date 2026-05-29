@@ -54,13 +54,21 @@ class CommandHookDefinition(HookDefinition):
 
 @dataclass
 class HttpHookDefinition(HookDefinition):
-    """发送 HTTP POST 请求的 Hook。"""
+    """发送 HTTP POST 请求的 Hook。
+
+    安全说明：
+    - allowed_hosts 为空时允许所有 host
+    - 设置 allowed_hosts 后只允许白名单内的 host
+    """
 
     url: str = ""
     """POST 请求的目标 URL。"""
 
     headers: dict[str, str] = field(default_factory=dict)
     """额外的 HTTP 请求头。"""
+
+    allowed_hosts: list[str] = field(default_factory=list)
+    """允许的 host 白名单。为空时不限制。"""
 
 
 @dataclass

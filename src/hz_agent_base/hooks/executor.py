@@ -254,7 +254,21 @@ class HookExecutor:
         hook: HttpHookDefinition,
         payload: dict[str, Any],
     ) -> HookResult:
-        """执行 HTTP POST Hook。"""
+        """执行 HTTP POST Hook。
+
+        安全检查：验证 URL 的 host 是否在 allowed_hosts 白名单内。
+        """
+        # host 白名单校验
+        if hook.allowed_hosts:
+            from urllib.parse import urlparse
+            host = urlparse(hook.url).hostname
+            if host not in hook.allowed_hosts:
+                return HookResult(
+                    success=False,
+                    blocked=True,
+                    reason=f"Host '{host}' not in allowed_hosts: {hook.allowed_hosts}",
+                )
+
         try:
             import httpx
 
