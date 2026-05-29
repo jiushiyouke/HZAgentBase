@@ -117,7 +117,7 @@ def create_agent(
     permissions: PermissionSettings | None = None,
     hooks: HookRegistry | None = None,
     memory_path: str | None = None,
-    memory_isolate_by_user: bool = False,
+    memory_isolate_by_user: bool = True,
     retriever: Retriever | None = None,
     knowledge_top_k: int = KNOWLEDGE_TOP_K,
     filesystem: bool | dict[str, Any] = False,
