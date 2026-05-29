@@ -57,6 +57,19 @@ tool_usage.log
 # 技术方案文档（不入库）
 *_plan.md
 
-# Secrets
+# Secrets and credentials
 **/.env
-**/.momery/
+**/.env.*
+**/.env.local
+**/.env.production
+**/.env.staging
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+service-account.json
+
+# Claude Code 会话数据
+.claude/

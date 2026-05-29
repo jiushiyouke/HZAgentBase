@@ -1,13 +1,17 @@
 """Configuration loader - reads from .env file.
 
 统一配置 MODEL_API_KEY / MODEL_BASE_URL，通过 DEFAULT_MODEL 的值自动匹配提供商。
+安全特性：API Key 空值警告、HTTP 协议警告。
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 
 def load_config(env_path: str | Path | None = None) -> dict[str, str]:
@@ -65,3 +69,10 @@ MEMORY_PATH = _config["MEMORY_PATH"]
 AUDIT_LOG_PATH = _config["AUDIT_LOG_PATH"]
 KNOWLEDGE_TOP_K = int(_config["KNOWLEDGE_TOP_K"])
 LOG_LEVEL = _config["LOG_LEVEL"]
+
+# 安全警告
+if not MODEL_API_KEY:
+    logger.warning("MODEL_API_KEY is not set. API calls will fail for cloud models (DeepSeek, OpenAI, Anthropic, Gemini).")
+
+if MODEL_BASE_URL and MODEL_BASE_URL.startswith("http://"):
+    logger.warning("MODEL_BASE_URL uses HTTP (not HTTPS). API keys will be transmitted in plaintext: %s", MODEL_BASE_URL)

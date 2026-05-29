@@ -197,9 +197,9 @@ metadata:
         return slug[:64]
 
     def _content_signature(self, content: str) -> str:
-        """Generate a signature for content deduplication."""
+        """生成内容签名用于去重（SHA-256）。"""
         normalized = content.strip().lower()
-        return hashlib.md5(normalized.encode()).hexdigest()[:16]
+        return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
     def _update_index(self, slug: str, description: str) -> None:
         """Update the MEMORY.md index file."""
