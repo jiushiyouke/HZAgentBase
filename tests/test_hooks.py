@@ -17,7 +17,7 @@ class TestHookEvent:
     def test_all_events_exist(self):
         """确保所有预期事件都存在。"""
         expected = {"session_start", "session_end", "pre_tool_use",
-                    "post_tool_use", "user_prompt_submit", "stop"}
+                    "post_tool_use", "user_prompt_submit"}
         actual = {e.value for e in HookEvent}
         assert expected == actual
 
@@ -50,7 +50,7 @@ class TestHookRegistry:
     def test_get_hooks_returns_empty_for_unknown_event(self):
         """未注册的事件应返回空列表。"""
         registry = HookRegistry()
-        assert registry.get_hooks(HookEvent.STOP) == []
+        assert registry.get_hooks(HookEvent.SESSION_END) == []
 
     def test_clear_specific_event(self):
         """清除特定事件的钩子。"""

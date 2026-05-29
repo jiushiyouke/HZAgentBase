@@ -10,13 +10,19 @@ from deepagents.graph import CompiledStateGraph
 from deepagents.backends import BackendProtocol
 from langchain_openai import ChatOpenAI
 
-from .config import DEFAULT_MODEL, MODEL_API_KEY, MODEL_BASE_URL, AUDIT_LOG_PATH, KNOWLEDGE_TOP_K
+from .config import (
+    DEFAULT_MODEL, MODEL_API_KEY, MODEL_BASE_URL,
+    AUDIT_LOG_PATH, KNOWLEDGE_TOP_K,
+    MODEL_REQUEST_TIMEOUT, MODEL_MAX_RETRIES, RECURSION_LIMIT,
+)
 from .middleware import AgentMiddleware
 from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
 from .middleware.knowledge import KnowledgeMiddleware
 from .middleware.filesystem import FileAuditMiddleware
+from .resilience.protocols import CancellationChecker, StopCondition
+from .middleware.resilient import ResilientMiddleware
 from .knowledge.protocol import Retriever
 from .coordinator.worker import WorkerConfig
 from .coordinator.coordinator import CoordinatorMiddleware
@@ -73,7 +79,10 @@ def _get_model(model: str | Any | None = None) -> Any:
     if "claude" in model_lower:
         try:
             from langchain_anthropic import ChatAnthropic
-            return ChatAnthropic(model=model, api_key=MODEL_API_KEY)
+            return ChatAnthropic(
+                model=model, api_key=MODEL_API_KEY,
+                timeout=MODEL_REQUEST_TIMEOUT,
+            )
         except ImportError:
             raise ImportError(
                 "使用 Claude 模型需要安装 langchain-anthropic: "
@@ -84,7 +93,10 @@ def _get_model(model: str | Any | None = None) -> Any:
     if "gemini" in model_lower:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
-            return ChatGoogleGenerativeAI(model=model, google_api_key=MODEL_API_KEY)
+            return ChatGoogleGenerativeAI(
+                model=model, google_api_key=MODEL_API_KEY,
+                timeout=MODEL_REQUEST_TIMEOUT,
+            )
         except ImportError:
             raise ImportError(
                 "使用 Gemini 模型需要安装 langchain-google-genai: "
@@ -96,11 +108,17 @@ def _get_model(model: str | Any | None = None) -> Any:
         try:
             from langchain_deepseek import ChatDeepSeek
             base_url = MODEL_BASE_URL or _PROVIDER_DEFAULT_URLS["deepseek"]
-            return ChatDeepSeek(model=model, api_key=MODEL_API_KEY, base_url=base_url)
+            return ChatDeepSeek(
+                model=model, api_key=MODEL_API_KEY, base_url=base_url,
+                timeout=MODEL_REQUEST_TIMEOUT,
+            )
         except ImportError:
             # 降级到 ChatOpenAI（不支持 reasoning_content）
             base_url = MODEL_BASE_URL or _PROVIDER_DEFAULT_URLS["deepseek"]
-            return ChatOpenAI(model=model, api_key=MODEL_API_KEY, base_url=base_url)
+            return ChatOpenAI(
+                model=model, api_key=MODEL_API_KEY, base_url=base_url,
+                request_timeout=MODEL_REQUEST_TIMEOUT,
+            )
 
     # 以下均为 OpenAI 兼容 API（OpenAI、Ollama 等）
     # 确定 base_url：用户显式设置 > 提供商默认 > 不传（让 SDK 自己决定）
@@ -109,7 +127,11 @@ def _get_model(model: str | Any | None = None) -> Any:
         if any(model_lower.startswith(p) for p in ("gpt-", "o1-", "o3-")):
             base_url = _PROVIDER_DEFAULT_URLS["openai"]
 
-    kwargs: dict[str, Any] = {"model": model, "api_key": MODEL_API_KEY}
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "api_key": MODEL_API_KEY,
+        "request_timeout": MODEL_REQUEST_TIMEOUT,
+    }
     if base_url:
         kwargs["base_url"] = base_url
 
@@ -133,6 +155,9 @@ def create_agent(
     middleware: Sequence[AgentMiddleware] | None = None,
     backend: BackendProtocol | None = None,
     skills: list[str] | None = None,
+    cancellation_checker: Any | None = None,
+    stop_condition: Any | None = None,
+    max_retries: int = MODEL_MAX_RETRIES,
     **kwargs,
 ) -> CompiledStateGraph:
     """Create an agent with HZAgentBase harness.
@@ -203,7 +228,15 @@ def create_agent(
     if middleware:
         harness_middleware.extend(middleware)
 
-    # 7. Coordinator middleware (multi-agent orchestration)
+    # 7. Resilient middleware (retry, cancellation, stop condition)
+    if cancellation_checker is not None or stop_condition is not None or max_retries > 0:
+        harness_middleware.append(ResilientMiddleware(
+            cancellation_checker=cancellation_checker,
+            stop_condition=stop_condition,
+            max_retries=max_retries,
+        ))
+
+    # 8. Coordinator middleware (multi-agent orchestration)
     coordinator = None
     if workers:
         coordinator = CoordinatorMiddleware(workers, shared_rules=rules)
@@ -238,6 +271,7 @@ def run_agent(
     *,
     thread_id: str | None = None,
     user_id: str | None = None,
+    recursion_limit: int = RECURSION_LIMIT,
 ) -> dict[str, Any]:
     """Run an agent with a single message, with thread isolation.
 
@@ -250,6 +284,7 @@ def run_agent(
         thread_id: Unique thread identifier. Auto-generated if not provided.
                    Use different thread_id for different users/sessions.
         user_id: Optional user identifier for logging.
+        recursion_limit: Agent 最大执行步数，防止死循环。默认从 .env 读取。
 
     Returns:
         The agent's response state including messages.
@@ -267,4 +302,4 @@ def run_agent(
         "messages": [{"role": "user", "content": message}],
     }
 
-    return agent.invoke(input_state, config=config)
+    return agent.invoke(input_state, config=config, recursion_limit=recursion_limit)

@@ -17,6 +17,7 @@ from .hook import HookMiddleware
 from .memory import MemoryMiddleware
 from .knowledge import KnowledgeMiddleware
 from .filesystem import FileAuditMiddleware
+from .resilient import ResilientMiddleware
 
 __all__ = [
     "AgentMiddleware",
@@ -25,4 +26,5 @@ __all__ = [
     "MemoryMiddleware",
     "KnowledgeMiddleware",
     "FileAuditMiddleware",
+    "ResilientMiddleware",
 ]

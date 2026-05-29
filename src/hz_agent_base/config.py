@@ -44,6 +44,10 @@ def load_config(env_path: str | Path | None = None) -> dict[str, str]:
         "DEFAULT_MODEL": os.environ.get("DEFAULT_MODEL", "deepseek-v4-flash"),
         "MODEL_API_KEY": os.environ.get("MODEL_API_KEY", ""),
         "MODEL_BASE_URL": os.environ.get("MODEL_BASE_URL", ""),
+        # 容错配置
+        "MODEL_REQUEST_TIMEOUT": os.environ.get("MODEL_REQUEST_TIMEOUT", "600"),
+        "MODEL_MAX_RETRIES": os.environ.get("MODEL_MAX_RETRIES", "2"),
+        "RECURSION_LIMIT": os.environ.get("RECURSION_LIMIT", "25"),
         # 权限
         "PERMISSION_MODE": os.environ.get("PERMISSION_MODE", "default"),
         # 记忆
@@ -69,6 +73,11 @@ MEMORY_PATH = _config["MEMORY_PATH"]
 AUDIT_LOG_PATH = _config["AUDIT_LOG_PATH"]
 KNOWLEDGE_TOP_K = int(_config["KNOWLEDGE_TOP_K"])
 LOG_LEVEL = _config["LOG_LEVEL"]
+
+# 容错配置
+MODEL_REQUEST_TIMEOUT = int(_config["MODEL_REQUEST_TIMEOUT"])
+MODEL_MAX_RETRIES = int(_config["MODEL_MAX_RETRIES"])
+RECURSION_LIMIT = int(_config["RECURSION_LIMIT"])
 
 # 安全警告
 if not MODEL_API_KEY:
