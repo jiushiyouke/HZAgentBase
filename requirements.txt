@@ -1,4 +1,4 @@
-# HZAgentBase 核心依赖
+﻿# HZAgentBase 核心依赖
 # 从 pyproject.toml 同步，安装时推荐使用 pyproject.toml（pip install .）
 
 deepagents>=0.6.4,<0.7.0
