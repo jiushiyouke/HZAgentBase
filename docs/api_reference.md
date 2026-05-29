@@ -97,7 +97,6 @@ settings = PermissionSettings(
     allowed_tools=["read_file", "glob", "grep"],
     denied_tools=["bash"],
     denied_paths=["**/.env*", "**/secrets/**"],
-    sensitive_paths=[".ssh", ".aws/credentials"],
     denied_commands=["rm -rf", "DROP TABLE"],
 )
 ```
@@ -108,8 +107,9 @@ settings = PermissionSettings(
 | `allowed_tools` | `list[str]` | 允许的工具列表。空表示允许所有 |
 | `denied_tools` | `list[str]` | 拒绝的工具列表 |
 | `denied_paths` | `list[str]` | 拒绝访问的路径 glob 模式 |
-| `sensitive_paths` | `list[str]` | 敏感路径（始终拒绝） |
 | `denied_commands` | `list[str]` | 拒绝的命令模式 |
+
+> **注意：** 敏感路径（SSH 密钥、云凭证等）由系统内置的 `SENSITIVE_PATH_PATTERNS` 常量定义，始终拒绝访问，不可通过实例配置。
 
 ### `PermissionMode`
 
@@ -147,7 +147,6 @@ registry.register(CommandHookDefinition(
 registry.register(HttpHookDefinition(
     event=HookEvent.SESSION_START,
     url="https://example.com/webhook",
-    method="POST",
 ))
 ```
 

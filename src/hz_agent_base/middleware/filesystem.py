@@ -100,8 +100,9 @@ class AuditLog:
         if not self._hmac_key:
             return record_json + "\n"
         sig = hmac.new(self._hmac_key, record_json.encode(), hashlib.sha256).hexdigest()[:16]
-        # 在 JSON 末尾追加签名字段
-        return record_json[:-1] + f',"__sig":"{sig}"}}\n'
+        record = json.loads(record_json)
+        record["__sig"] = sig
+        return json.dumps(record, ensure_ascii=False) + "\n"
 
     def add(self, op: FileOperation) -> None:
         """添加一条操作记录（内存 + 缓冲区）。"""

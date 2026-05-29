@@ -114,7 +114,7 @@ def run(prompt: str, model: str | None, auto: bool, thread: str | None):
             if hasattr(msg, "type") and msg.type == "ai":
                 console.print(msg.content)
     except Exception as e:
-        console.print(f"[bold red]Error:[/] {e}", err=True)
+        console.print(f"[bold red]Error:[/] {e}")
         sys.exit(1)
 
 
@@ -129,9 +129,9 @@ def version():
     table.add_row("Version", __version__)
 
     try:
-        from .config import DEFAULT_MODEL, DEEPSEEK_BASE_URL
+        from .config import DEFAULT_MODEL, MODEL_BASE_URL
         table.add_row("Default Model", DEFAULT_MODEL)
-        table.add_row("API Base URL", DEEPSEEK_BASE_URL)
+        table.add_row("API Base URL", MODEL_BASE_URL)
     except Exception:
         table.add_row("Config", "Not loaded")
 

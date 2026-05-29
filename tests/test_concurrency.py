@@ -278,7 +278,7 @@ class TestHookExecutorConcurrency:
         for i in range(5):
             registry.register(CommandHookDefinition(
                 event=HookEvent.POST_TOOL_USE,
-                command=f"ping -n 1 127.0.0.1 > nul",
+                command=f"python -c \"import time; time.sleep(0.2)\"",
                 block_on_failure=False,
             ))
 

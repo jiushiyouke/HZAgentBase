@@ -221,8 +221,11 @@ def create_agent(
     if filesystem:
         # 默认配置：开启审计、开启变更追踪、日志路径从 .env 读取
         default_fs_opts = {"log_path": AUDIT_LOG_PATH}
-        fs_opts = {**default_fs_opts, **(filesystem if isinstance(filesystem, dict) else {})}
-        harness_middleware.append(FileAuditMiddleware(**fs_opts))
+        if isinstance(filesystem, dict):
+            # 移除 audit 键，防止意外关闭审计（传 dict 表示配置，关闭请用 False）
+            fs_opts = {k: v for k, v in filesystem.items() if k != "audit"}
+            default_fs_opts.update(fs_opts)
+        harness_middleware.append(FileAuditMiddleware(**default_fs_opts))
 
     # 6. User-provided middleware
     if middleware:

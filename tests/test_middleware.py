@@ -196,7 +196,7 @@ class TestMemoryMiddleware:
 
     def test_passes_through_when_no_memories(self, tmp_memory_dir):
         """没有相关记忆时应直接调用 handler。"""
-        middleware = MemoryMiddleware(str(tmp_memory_dir))
+        middleware = MemoryMiddleware(str(tmp_memory_dir), isolate_by_user=False)
 
         request = make_mock_request(
             messages=[HumanMessage(content="hello")]
@@ -215,7 +215,7 @@ class TestMemoryMiddleware:
         manager = MemoryManager(str(tmp_memory_dir))
         manager.add_memory("python-tips", "Python logging 最佳实践")
 
-        middleware = MemoryMiddleware(str(tmp_memory_dir))
+        middleware = MemoryMiddleware(str(tmp_memory_dir), isolate_by_user=False)
 
         request = make_mock_request(
             messages=[HumanMessage(content="Python logging 怎么用")],
@@ -232,7 +232,7 @@ class TestMemoryMiddleware:
 
     def test_skips_memory_for_non_human_messages(self, tmp_memory_dir):
         """非用户消息不应触发记忆搜索。"""
-        middleware = MemoryMiddleware(str(tmp_memory_dir))
+        middleware = MemoryMiddleware(str(tmp_memory_dir), isolate_by_user=False)
 
         # 只有 AI 消息，没有用户消息
         request = make_mock_request(

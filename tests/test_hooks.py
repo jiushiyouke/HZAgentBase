@@ -111,7 +111,7 @@ class TestHookExecutor:
         # 执行一个必定失败的命令
         registry.register(CommandHookDefinition(
             event=HookEvent.PRE_TOOL_USE,
-            command="exit 1",
+            command="python -c \"import sys; sys.exit(1)\"",
             block_on_failure=True,
         ))
         executor = HookExecutor(registry)
@@ -126,7 +126,7 @@ class TestHookExecutor:
         registry = HookRegistry()
         registry.register(CommandHookDefinition(
             event=HookEvent.PRE_TOOL_USE,
-            command="exit 1",
+            command="python -c \"import sys; sys.exit(1)\"",
             block_on_failure=False,
         ))
         executor = HookExecutor(registry)

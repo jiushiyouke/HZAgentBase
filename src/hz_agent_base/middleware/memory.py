@@ -28,12 +28,14 @@ class MemoryMiddleware(AgentMiddleware):
         isolate_by_user: 是否按用户隔离记忆。开启后每个用户有独立的记忆目录。
     """
 
-    def __init__(self, memory_path: str, isolate_by_user: bool = False):
+    def __init__(self, memory_path: str, isolate_by_user: bool = True):
         self.base_path = Path(memory_path)
         self.isolate_by_user = isolate_by_user
         # 非隔离模式下使用共享 manager
         if not isolate_by_user:
             self.manager = MemoryManager(memory_path)
+        else:
+            self._manager_cache: dict[str, MemoryManager] = {}
 
     def _get_user_id(self, request: Any) -> str:
         """从 request 中提取用户标识。"""
@@ -55,11 +57,14 @@ class MemoryMiddleware(AgentMiddleware):
         return self.base_path / user_id
 
     def _get_manager(self, request: Any) -> MemoryManager:
-        """获取当前请求的 MemoryManager。"""
+        """获取当前请求的 MemoryManager（隔离模式下按路径缓存）。"""
         if not self.isolate_by_user:
             return self.manager
         path = self._get_memory_path(request)
-        return MemoryManager(str(path))
+        path_str = str(path)
+        if path_str not in self._manager_cache:
+            self._manager_cache[path_str] = MemoryManager(path_str)
+        return self._manager_cache[path_str]
 
     def wrap_model_call(self, request, handler) -> Any:
         """注入记忆 → 调用模型 → 提取新记忆。"""
