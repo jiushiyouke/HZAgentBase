@@ -11,8 +11,11 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -39,7 +42,13 @@ class MemoryMiddleware(AgentMiddleware):
 
     def _get_user_id(self, request: Any) -> str:
         """从 request 中提取用户标识。"""
-        # 优先使用 request 上的 user_id
+        # 优先从 configurable 中读取（run_agent 通过 config 传入）
+        config = getattr(request, "configurable", None)
+        if config and isinstance(config, dict):
+            user_id = config.get("user_id")
+            if user_id:
+                return str(user_id)
+        # 降级到 request 上的 user_id
         user_id = getattr(request, "user_id", None)
         if user_id:
             return str(user_id)
@@ -89,14 +98,20 @@ class MemoryMiddleware(AgentMiddleware):
                     system_prompt=f"{current_system}\n\n## Relevant Memories\n{memory_context}"
                 )
                 response = handler(new_request)
-                # 对话结束后提取新记忆
-                manager.extract_and_save(messages, response)
+                # 对话结束后提取新记忆（best-effort，不阻断主流程）
+                try:
+                    manager.extract_and_save(messages, response)
+                except Exception as e:
+                    logger.warning("Memory extraction failed: %s", e)
                 return response
 
         # 无相关记忆时直接调用模型
         response = handler(request)
 
-        # 对话结束后提取新记忆
-        manager.extract_and_save(messages, response)
+        # 对话结束后提取新记忆（best-effort，不阻断主流程）
+        try:
+            manager.extract_and_save(messages, response)
+        except Exception as e:
+            logger.warning("Memory extraction failed: %s", e)
 
         return response

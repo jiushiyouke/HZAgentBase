@@ -85,3 +85,6 @@ if not MODEL_API_KEY:
 
 if MODEL_BASE_URL and MODEL_BASE_URL.startswith("http://"):
     logger.warning("MODEL_BASE_URL uses HTTP (not HTTPS). API keys will be transmitted in plaintext: %s", MODEL_BASE_URL)
+
+# 应用日志级别配置
+logging.basicConfig(level=LOG_LEVEL)

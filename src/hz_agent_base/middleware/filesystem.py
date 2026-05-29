@@ -263,7 +263,10 @@ class FileAuditMiddleware(AgentMiddleware):
 
     def _extract_and_log(self, response: Any, thread_id: str) -> None:
         """从 agent 响应中提取文件操作并记录到审计日志。"""
-        messages = response.get("messages", []) if isinstance(response, dict) else []
+        try:
+            messages = response.get("messages", []) if isinstance(response, dict) else []
+        except Exception:
+            return
 
         for msg in messages:
             # 检查是否为工具调用消息

@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Sequence
+
+logger = logging.getLogger(__name__)
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -34,9 +37,17 @@ class KnowledgeMiddleware(AgentMiddleware):
 
     def _get_user_id(self, request: Any) -> str | None:
         """从 request 中提取用户标识。"""
+        # 优先从 configurable 中读取（run_agent 通过 config 传入）
+        config = getattr(request, "configurable", None)
+        if config and isinstance(config, dict):
+            user_id = config.get("user_id")
+            if user_id:
+                return str(user_id)
+        # 降级到 request 上的 user_id
         user_id = getattr(request, "user_id", None)
         if user_id:
             return str(user_id)
+        # 降级到 thread_id
         thread_id = getattr(request, "thread_id", None)
         if thread_id:
             return str(thread_id)
@@ -63,8 +74,9 @@ class KnowledgeMiddleware(AgentMiddleware):
                 results = self.retriever.retrieve_for_user(query, top_k=self.top_k, user_id=user_id)
             else:
                 results = self.retriever.retrieve(query, top_k=self.top_k)
-        except Exception:
+        except Exception as e:
             # 检索失败不应阻断模型调用
+            logger.warning("Knowledge retrieval failed, skipping: %s", e)
             return handler(request)
 
         if not results:

@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -42,16 +45,22 @@ class HookMiddleware(AgentMiddleware):
 
     def before_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         """Agent 执行开始前触发 SESSION_START。"""
-        self.executor.execute(HookEvent.SESSION_START, {
-            "state_keys": list(state.keys()) if isinstance(state, dict) else [],
-        })
+        try:
+            self.executor.execute(HookEvent.SESSION_START, {
+                "state_keys": list(state.keys()) if isinstance(state, dict) else [],
+            })
+        except Exception as e:
+            logger.warning("SESSION_START hook failed: %s", e)
         return None  # 不修改状态
 
     def after_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         """Agent 执行结束后触发 SESSION_END。"""
-        self.executor.execute(HookEvent.SESSION_END, {
-            "state_keys": list(state.keys()) if isinstance(state, dict) else [],
-        })
+        try:
+            self.executor.execute(HookEvent.SESSION_END, {
+                "state_keys": list(state.keys()) if isinstance(state, dict) else [],
+            })
+        except Exception as e:
+            logger.warning("SESSION_END hook failed: %s", e)
         return None
 
     # ================================================================
@@ -70,12 +79,15 @@ class HookMiddleware(AgentMiddleware):
 
         # 触发 USER_PROMPT_SUBMIT 事件
         if user_content:
-            result = self.executor.execute(HookEvent.USER_PROMPT_SUBMIT, {
-                "prompt": user_content,
-            })
-            if result.blocked:
-                from langchain_core.messages import AIMessage
-                return {"messages": [AIMessage(content=f"Blocked by hook: {result.reason}")]}
+            try:
+                result = self.executor.execute(HookEvent.USER_PROMPT_SUBMIT, {
+                    "prompt": user_content,
+                })
+                if result.blocked:
+                    from langchain_core.messages import AIMessage
+                    return {"messages": [AIMessage(content=f"Blocked by hook: {result.reason}")]}
+            except Exception as e:
+                logger.warning("USER_PROMPT_SUBMIT hook failed: %s", e)
 
         return handler(request)
 

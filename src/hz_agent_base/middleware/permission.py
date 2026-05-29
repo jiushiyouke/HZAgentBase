@@ -40,3 +40,36 @@ class PermissionMiddleware(AgentMiddleware):
         # 用过滤后的工具列表创建新请求
         filtered_request = request.override(tools=allowed_tools)
         return handler(filtered_request)
+
+    def wrap_tool_call(self, request, handler) -> Any:
+        """在工具执行前检查路径规则和命令黑名单。"""
+        from ..permissions.settings import PermissionMode
+        from langchain_core.messages import ToolMessage
+
+        # FULL_AUTO 模式：全部放行
+        if self.checker.settings.mode == PermissionMode.FULL_AUTO:
+            return handler(request)
+
+        tool_call = request.tool_call
+        tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else getattr(tool_call, "name", "")
+        args = tool_call.get("args", {}) if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
+
+        # 提取文件路径和命令参数
+        file_path = args.get("file_path") or args.get("path") or None
+        command = args.get("command") or None
+
+        # 使用 evaluate() 检查完整权限规则（路径、命令等）
+        decision = self.checker.evaluate(
+            tool_name,
+            file_path=file_path,
+            command=command,
+        )
+
+        if not decision.allowed:
+            tool_call_id = tool_call.get("id", "") if isinstance(tool_call, dict) else getattr(tool_call, "id", "")
+            return ToolMessage(
+                content=f"Permission denied: {decision.reason}",
+                tool_call_id=tool_call_id,
+            )
+
+        return handler(request)
