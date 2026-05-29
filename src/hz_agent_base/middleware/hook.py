@@ -6,7 +6,6 @@
 - USER_PROMPT_SUBMIT: 用户提交消息时触发（wrap_model_call）
 - PRE_TOOL_USE: 工具执行前触发（wrap_tool_call）
 - POST_TOOL_USE: 工具执行后触发（wrap_tool_call）
-- STOP: Agent 停止时触发（after_model，需配置 can_jump_to）
 """
 
 from __future__ import annotations

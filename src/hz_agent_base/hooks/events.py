@@ -20,6 +20,3 @@ class HookEvent(Enum):
 
     USER_PROMPT_SUBMIT = "user_prompt_submit"
     """用户提交消息时触发。"""
-
-    STOP = "stop"
-    """Agent 停止时触发。"""

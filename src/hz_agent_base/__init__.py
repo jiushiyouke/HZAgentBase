@@ -20,7 +20,8 @@ from .knowledge import Retriever, RetrievalResult
 from .coordinator.worker import WorkerConfig
 from .prompts.manager import PromptManager
 from .backends import StateBackend, StoreBackend
-from .resilience import CancellationChecker, StopCondition, ResilientMiddleware
+from .resilience import CancellationChecker, StopCondition
+from .middleware import ResilientMiddleware
 
 __version__ = "0.1.0"
 

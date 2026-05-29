@@ -15,7 +15,7 @@ from typing import Any
 
 from langchain.agents.middleware.types import AgentMiddleware
 
-from .protocols import CancellationChecker, StopCondition
+from ..resilience.protocols import CancellationChecker, StopCondition
 
 logger = logging.getLogger(__name__)
 

@@ -59,8 +59,9 @@ HZAgentBase 是一个可复用的 Agent Harness 基础设施库，为上层业�
 │  │  3. MemoryMiddleware      ← 记忆注入/提取            │   │
 │  │  4. KnowledgeMiddleware   ← 知识库 RAG 检索          │   │
 │  │  5. FileAuditMiddleware  ← 文件审计 + 变更追踪      │   │
-│  │  6. CoordinatorMiddleware ← 多 Agent 编排            │   │
-│  │  7. [用户自定义 Middleware]                           │   │
+│  │  6. [用户自定义 Middleware]                           │   │
+│  │  7. ResilientMiddleware   ← 容错：重试/取消/终止     │   │
+│  │  8. CoordinatorMiddleware ← 多 Agent 编排            │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -104,7 +105,6 @@ class HookEvent(Enum):
     PRE_TOOL_USE = "pre_tool_use"
     POST_TOOL_USE = "post_tool_use"
     USER_PROMPT_SUBMIT = "user_prompt_submit"
-    STOP = "stop"
 
 # 四种 Hook 类型
 - CommandHook: 执行 shell 命令
@@ -391,6 +391,35 @@ agent = create_agent(
 - [ ] 使用指南
 - [ ] PyPI 实际发布
 
+### 阶段十：容错机制 ✅
+- [x] 超时控制（MODEL_REQUEST_TIMEOUT，LLM API 调用超时）
+- [x] 失败重试（ResilientMiddleware，指数退避，max_retries 可配置）
+- [x] 递归限制（recursion_limit 参数，防止 Agent 死循环）
+- [x] 用户取消（CancellationChecker 协议，支持 Redis/DB/内存等后端）
+- [x] 终止条件（StopCondition 协议，支持轮次限制/规则引擎/外部 API）
+- [x] ResilientMiddleware 集成到 create_agent() 管道
+- [x] 单元测试（容错相关测试用例）
+
+### 阶段十一：安全加固 ✅
+- [x] 路径穿越防护（Path.resolve() 规范化）
+- [x] Shell 注入防护（shell=False + shlex.split）
+- [x] 正则命令黑名单（13 种危险命令模式）
+- [x] LLM Hook 默认阻止（模型未配置时 blocked）
+- [x] 跨用户记忆隔离（isolate_by_user 参数）
+- [x] 审计日志 HMAC-SHA256 签名 + verify_log()
+- [x] Workspace 限制生效
+- [x] HTTP Hook URL 白名单（allowed_hosts）
+- [x] API Key 启动校验
+- [x] .gitignore 补全
+- [x] 安全单元测试（25 个用例）
+
+### 阶段十二：高并发优化 ✅
+- [x] 记忆 LRU+TTL 缓存（MemoryCache）
+- [x] 跨平台文件锁（FileLock，Windows msvcrt / Unix fcntl）
+- [x] 审计批量缓冲写入（BufferedAuditLog）
+- [x] Hook 全局线程池并行执行
+- [x] 并发压力测试（100 线程，12 个用例）
+
 ## 七、依赖清单
 
 ```toml
@@ -443,7 +472,11 @@ HZAgentBase/
 │       │   ├── hook.py           # Hook 中间件
 │       │   ├── memory.py         # 记忆中间件
 │       │   ├── knowledge.py      # 知识库中间件
-│       │   └── filesystem.py     # 文件审计中间件
+│       │   ├── filesystem.py     # 文件审计中间件
+│       │   └── resilient.py      # 容错中间件（重试/取消/终止）
+│       ├── resilience/
+│       │   ├── __init__.py
+│       │   └── protocols.py      # CancellationChecker / StopCondition 协议
 │       ├── knowledge/
 │       │   ├── __init__.py
 │       │   └── protocol.py       # Retriever 协议定义
@@ -464,7 +497,8 @@ HZAgentBase/
 │       ├── memory/
 │       │   ├── __init__.py
 │       │   ├── manager.py        # 记忆管理
-│       │   └── relevance.py      # 记忆搜索与相关性算法
+│       │   ├── relevance.py      # 记忆搜索与相关性算法
+│       │   └── cache.py          # LRU+TTL 缓存 + 跨平台文件锁
 │       ├── coordinator/
 │       │   ├── __init__.py
 │       │   ├── coordinator.py    # Coordinator 模式
@@ -485,7 +519,10 @@ HZAgentBase/
 │   ├── test_knowledge.py
 │   ├── test_filesystem.py
 │   ├── test_coordinator.py
-│   └── test_prompts.py
+│   ├── test_prompts.py
+│   ├── test_security.py          # 安全加固测试（25 个用例）
+│   ├── test_concurrency.py       # 并发压力测试（12 个用例）
+│   └── test_memory_cache.py      # 缓存和文件锁测试（16 个用例）
 └── examples/
     ├── basic_agent.py          # 最简用法
     ├── custom_permissions.py   # 权限控制

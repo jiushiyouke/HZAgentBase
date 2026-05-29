@@ -1,16 +1,15 @@
-"""容错与韧性模块。
+"""容错协议模块。
 
-提供 Agent 运行时的容错能力：
-- CancellationChecker: 用户取消检查协议
-- StopCondition: 终止条件检查协议
-- ResilientMiddleware: 重试、超时、取消、终止条件的统一中间件
+定义容错相关的协议接口，用户实现这些协议接入自己的机制：
+- CancellationChecker: 取消检查（支持 Redis/DB/内存等）
+- StopCondition: 终止条件（轮次限制/规则引擎/外部 API 等）
+
+ResilientMiddleware 位于 middleware 包中。
 """
 
 from .protocols import CancellationChecker, StopCondition
-from .middleware import ResilientMiddleware
 
 __all__ = [
     "CancellationChecker",
     "StopCondition",
-    "ResilientMiddleware",
 ]

@@ -17,12 +17,16 @@ agent = create_agent(
     permissions=PermissionSettings(...),
     hooks=HookRegistry(...),
     memory_path=".memory/",
+    memory_isolate_by_user=True,
     retriever=my_retriever,
     knowledge_top_k=5,
     filesystem=True,
     workers=[WorkerConfig(...)],
     middleware=[MyMiddleware()],
     backend=LocalBackend(),
+    cancellation_checker=my_checker,
+    stop_condition=my_condition,
+    max_retries=2,
 )
 ```
 
@@ -37,12 +41,16 @@ agent = create_agent(
 | `permissions` | `PermissionSettings \| None` | `None` | 权限配置。None 时使用 DEFAULT 模式 |
 | `hooks` | `HookRegistry \| None` | `None` | Hook 注册表 |
 | `memory_path` | `str \| None` | `None` | 记忆存储目录路径 |
+| `memory_isolate_by_user` | `bool` | `True` | 记忆按用户隔离，每个用户独立记忆目录 |
 | `retriever` | `Retriever \| None` | `None` | 知识库检索器 |
 | `knowledge_top_k` | `int` | `5` | 每次检索 Top-K 条 |
 | `filesystem` | `bool \| dict` | `False` | 文件审计配置 |
 | `workers` | `list[WorkerConfig] \| None` | `None` | Worker 配置列表 |
 | `middleware` | `Sequence[AgentMiddleware] \| None` | `None` | 自定义中间件列表 |
 | `backend` | `BackendProtocol \| None` | `None` | 文件系统/沙箱后端 |
+| `cancellation_checker` | `CancellationChecker \| None` | `None` | 取消检查器，实现 `is_cancelled(thread_id)` 方法 |
+| `stop_condition` | `StopCondition \| None` | `None` | 终止条件，实现 `should_stop(messages)` 方法 |
+| `max_retries` | `int` | `2` | LLM 调用失败时的最大重试次数（指数退避） |
 
 **返回值：** `CompiledStateGraph` — 线程安全的编译 Agent 实例。
 
@@ -71,6 +79,7 @@ result = run_agent(
 | `message` | `str` | 用户消息 |
 | `thread_id` | `str \| None` | 线程 ID，用于多用户隔离。None 时自动生成 |
 | `user_id` | `str \| None` | 用户标识，用于日志记录 |
+| `recursion_limit` | `int` | Agent 最大执行步数，防止死循环。默认从 `RECURSION_LIMIT` 环境变量读取（25） |
 
 **返回值：** `dict[str, Any]` — 包含 `messages` 等字段的响应状态。
 
@@ -151,7 +160,6 @@ class HookEvent(Enum):
     PRE_TOOL_USE = "pre_tool_use"
     POST_TOOL_USE = "post_tool_use"
     USER_PROMPT_SUBMIT = "user_prompt_submit"
-    STOP = "stop"
 ```
 
 ---
@@ -355,3 +363,83 @@ agent = create_agent(filesystem={
     "success": true
 }
 ```
+
+---
+
+## 容错机制
+
+### `ResilientMiddleware`
+
+容错中间件，提供重试、取消、终止条件能力。默认开启（`max_retries=2`）。
+
+```python
+from hz_agent_base import create_agent, CancellationChecker, StopCondition
+
+# 默认容错（重试 2 次，超时 600s，递归限制 25 步）
+agent = create_agent()
+
+# 自定义重试次数
+agent = create_agent(max_retries=3)
+
+# 带取消检查
+agent = create_agent(cancellation_checker=my_checker)
+
+# 带终止条件
+agent = create_agent(stop_condition=my_condition)
+
+# 运行时限制递归深度
+result = run_agent(agent, "你好", recursion_limit=10)
+```
+
+**容错执行流程：**
+
+```
+wrap_model_call 被调用
+  ├── 1. 检查取消信号 → 已取消？返回"请求已被取消"
+  ├── 2. 检查终止条件（调用前） → 应停止？返回"已满足终止条件"
+  ├── 3. 调用模型（带重试）
+  │     ├── attempt 1 → 成功 → 继续
+  │     ├── attempt 1 → 失败 → 等待 1s
+  │     ├── attempt 2 → 成功 → 继续
+  │     └── attempt 2 → 失败 → 返回"模型暂时不可用"
+  └── 4. 检查终止条件（调用后） → 应停止？直接返回结果
+```
+
+### `CancellationChecker`（Protocol）
+
+取消检查器协议，检查用户是否已取消当前请求。
+
+```python
+from hz_agent_base import CancellationChecker
+
+class RedisCancellationChecker:
+    def __init__(self, redis_client):
+        self.redis = redis_client
+
+    def is_cancelled(self, thread_id: str) -> bool:
+        return self.redis.exists(f"cancel:{thread_id}")
+```
+
+| 方法 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `is_cancelled` | `thread_id: str` | `bool` | True 表示已取消，Agent 应终止 |
+
+### `StopCondition`（Protocol）
+
+终止条件协议，检查 Agent 是否应停止循环。
+
+```python
+from hz_agent_base import StopCondition
+
+class MaxRoundsCondition:
+    def __init__(self, max_rounds: int = 5):
+        self.max_rounds = max_rounds
+
+    def should_stop(self, messages: list) -> bool:
+        ai_count = sum(1 for m in messages if getattr(m, "type", "") == "ai")
+        return ai_count >= self.max_rounds
+```
+
+| 方法 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `should_stop` | `messages: list` | `bool` | True 表示应终止，Agent 停止循环 |

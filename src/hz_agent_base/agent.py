@@ -22,7 +22,7 @@ from .middleware.memory import MemoryMiddleware
 from .middleware.knowledge import KnowledgeMiddleware
 from .middleware.filesystem import FileAuditMiddleware
 from .resilience.protocols import CancellationChecker, StopCondition
-from .resilience.middleware import ResilientMiddleware
+from .middleware.resilient import ResilientMiddleware
 from .knowledge.protocol import Retriever
 from .coordinator.worker import WorkerConfig
 from .coordinator.coordinator import CoordinatorMiddleware

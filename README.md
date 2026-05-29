@@ -10,9 +10,12 @@
 - **Hook 系统** — 生命周期事件钩子（4 种类型：Command / Http / Prompt / Agent），全局线程池并行执行
 - **记忆系统** — 基于文件的持久化跨会话记忆，LRU 缓存 + 文件锁，支持相关性搜索和自动提取
 - **知识库 RAG** — 通过 Retriever 协议接入任意知识库实现，松耦合设计
-- **文件审计** — 文件操作审计日志 + 变更追踪，批量缓冲写入，支持 JSONL 持久化
+- **文件审计** — 文件操作审计日志 + 变更追踪，HMAC-SHA256 签名保证完整性，批量缓冲写入
 - **提示词管理** — 目录式提示词加载（base.md + rules/*.md），支持共享规则
 - **多 Agent 编排** — Coordinator / Worker 模式，每个 worker 独立提示词、工具集和技能
+- **容错机制** — LLM 调用超时控制、指数退避重试、递归深度限制、用户取消检查、终止条件
+- **安全加固** — 路径穿越防护、shell 注入防护、正则命令黑名单、跨用户记忆隔离、HTTP Hook 白名单
+- **高并发优化** — 记忆 LRU+TTL 缓存、审计批量缓冲写入、Hook 全局线程池并行执行
 - **多用户隔离** — 基于 LangGraph thread_id 的状态隔离，同一 agent 实例可并发服务多个用户
 - **可插拔后端** — 由 Deep Agents 提供，支持本地 / 沙箱 / 远程执行环境
 - **CLI 工具** — 命令行交互界面
@@ -72,6 +75,9 @@ cp .env-example .env
 | `DEFAULT_MODEL` | 默认模型名称 | `deepseek-v4-flash` |
 | `MODEL_API_KEY` | API Key（统一配置） | — |
 | `MODEL_BASE_URL` | API 地址（可选，通常不需要） | 各提供商自动设置 |
+| `MODEL_REQUEST_TIMEOUT` | LLM API 调用超时（秒） | `600` |
+| `MODEL_MAX_RETRIES` | LLM 调用失败重试次数 | `2` |
+| `RECURSION_LIMIT` | Agent 最大执行步数，防止死循环 | `25` |
 | `PERMISSION_MODE` | 权限模式 | `default` |
 | `MEMORY_PATH` | 记忆存储路径 | `.memory` |
 | `AUDIT_LOG_PATH` | 审计日志路径 | `.audit/audit.jsonl` |
@@ -88,7 +94,8 @@ cp .env-example .env
 4. KnowledgeMiddleware    ← 知识库 RAG 检索（需传入 retriever）
 5. FileAuditMiddleware   ← 文件审计 + 变更追踪（需传入 filesystem=True）
 6. [用户自定义 Middleware] ← 通过 middleware 参数传入
-7. CoordinatorMiddleware  ← 多 Agent 编排（需传入 workers）
+7. ResilientMiddleware    ← 容错：重试、取消、终止条件（默认开启）
+8. CoordinatorMiddleware  ← 多 Agent 编排（需传入 workers）
 ```
 
 | 中间件 | 默认状态 | 启用方式 |
@@ -98,6 +105,7 @@ cp .env-example .env
 | Memory | 关闭 | `memory_path=".memory/"` |
 | Knowledge | 关闭 | `retriever=your_retriever` |
 | Filesystem | 关闭 | `filesystem=True` 或 `filesystem={...}` |
+| Resilient | 开启 | `max_retries=2`，可选 `cancellation_checker`、`stop_condition` |
 | Coordinator | 关闭 | `workers=[WorkerConfig(...)]` |
 
 ## 权限系统
@@ -135,7 +143,7 @@ registry.register(CommandHookDefinition(
 agent = create_agent(hooks=registry)
 ```
 
-支持的事件：`SESSION_START`、`SESSION_END`、`PRE_TOOL_USE`、`POST_TOOL_USE`、`USER_PROMPT_SUBMIT`、`STOP`
+支持的事件：`SESSION_START`、`SESSION_END`、`PRE_TOOL_USE`、`POST_TOOL_USE`、`USER_PROMPT_SUBMIT`
 
 ## 记忆系统
 
@@ -187,6 +195,80 @@ agent = create_agent(filesystem={
 ```
 
 审计日志以 JSONL 格式记录每次文件操作（工具名、文件路径、操作类型、时间戳、是否成功）。
+
+## 容错机制
+
+HZAgentBase 提供多层容错保护，防止 LLM 调用异常导致 Agent 不可用：
+
+```python
+from hz_agent_base import create_agent
+
+# 基础容错（默认生效，无需配置）
+agent = create_agent()  # 自动：超时 600s + 重试 2 次 + 递归限制 25 步
+
+# 自定义重试次数
+agent = create_agent(max_retries=3)
+
+# 带取消检查（Web 场景：用户主动取消请求）
+class RedisCancellationChecker:
+    def __init__(self, redis_client):
+        self.redis = redis_client
+    def is_cancelled(self, thread_id: str) -> bool:
+        return self.redis.exists(f"cancel:{thread_id}")
+
+agent = create_agent(
+    cancellation_checker=RedisCancellationChecker(redis_client),
+)
+
+# 带终止条件（限制 Agent 循环轮次）
+class MaxRoundsCondition:
+    def __init__(self, max_rounds: int = 5):
+        self.max_rounds = max_rounds
+    def should_stop(self, messages: list) -> bool:
+        ai_count = sum(1 for m in messages if getattr(m, "type", "") == "ai")
+        return ai_count >= self.max_rounds
+
+agent = create_agent(stop_condition=MaxRoundsCondition(max_rounds=5))
+```
+
+**容错层次：**
+
+| 层次 | 机制 | 配置 | 默认值 |
+|------|------|------|--------|
+| 超时控制 | LLM API 调用超时 | `MODEL_REQUEST_TIMEOUT` | 600 秒 |
+| 失败重试 | 指数退避重试 | `max_retries` / `MODEL_MAX_RETRIES` | 2 次 |
+| 递归限制 | Agent 最大执行步数 | `recursion_limit` / `RECURSION_LIMIT` | 25 步 |
+| 用户取消 | 检查外部取消信号 | `cancellation_checker` | 无（需实现） |
+| 终止条件 | 检查是否应停止循环 | `stop_condition` | 无（需实现） |
+
+`cancellation_checker` 和 `stop_condition` 通过协议（Protocol）接入，支持任意后端（Redis、数据库、API 等）：
+
+```python
+from hz_agent_base import CancellationChecker, StopCondition
+
+# 实现 CancellationChecker 协议
+class MyChecker:
+    def is_cancelled(self, thread_id: str) -> bool:
+        ...
+
+# 实现 StopCondition 协议
+class MyCondition:
+    def should_stop(self, messages: list) -> bool:
+        ...
+```
+
+## 安全加固
+
+HZAgentBase 内置多层安全防护：
+
+- **路径穿越防护** — 所有路径经 `Path.resolve()` 规范化，防止 `../` 绕过敏感路径检查
+- **Shell 注入防护** — Hook 命令默认 `shell=False`，使用 `shlex.split()` 安全拆分
+- **正则命令黑名单** — 13 种危险命令模式（`rm -rf /`、`curl | sh`、`eval` 等）
+- **跨用户记忆隔离** — `memory_isolate_by_user=True`（默认），按用户隔离记忆目录
+- **审计日志完整性** — HMAC-SHA256 签名，`verify_log()` 校验
+- **HTTP Hook 白名单** — `allowed_hosts` 限制外发请求目标
+- **LLM Hook 默认阻止** — 模型未配置时 PromptHook/AgentHook 默认阻止而非放行
+- **Workspace 限制** — 文件审计可限制操作范围在指定工作目录内
 
 ## 提示词管理
 
@@ -388,6 +470,7 @@ hz-agent version
 | `permissions` | `PermissionSettings \| None` | 权限配置，默认 DEFAULT 模式 |
 | `hooks` | `HookRegistry \| None` | Hook 注册表 |
 | `memory_path` | `str \| None` | 记忆存储目录路径 |
+| `memory_isolate_by_user` | `bool` | 记忆按用户隔离，默认 True |
 | `retriever` | `Retriever \| None` | 知识库检索器（实现 Retriever 协议） |
 | `knowledge_top_k` | `int` | 知识库每次检索条数，默认 5 |
 | `filesystem` | `bool \| dict` | 文件审计配置，False 为关闭 |
@@ -395,6 +478,9 @@ hz-agent version
 | `middleware` | `Sequence[AgentMiddleware] \| None` | 自定义中间件列表 |
 | `backend` | `BackendProtocol \| None` | 文件系统/沙箱后端 |
 | `skills` | `list[str] \| None` | 技能目录列表，由 SkillsMiddleware 加载 |
+| `cancellation_checker` | `CancellationChecker \| None` | 取消检查器（实现 CancellationChecker 协议） |
+| `stop_condition` | `StopCondition \| None` | 终止条件（实现 StopCondition 协议） |
+| `max_retries` | `int` | LLM 调用失败重试次数，默认 2 |
 
 ## 项目结构
 
@@ -409,16 +495,18 @@ HZAgentBase/
 │   │   ├── hook.py           # Hook 中间件
 │   │   ├── memory.py         # 记忆中间件
 │   │   ├── knowledge.py      # 知识库 RAG 中间件
-│   │   └── filesystem.py     # 文件审计中间件
+│   │   ├── filesystem.py     # 文件审计中间件
+│   │   └── resilient.py      # 容错中间件（重试 / 取消 / 终止）
+│   ├── resilience/            # 容错协议（CancellationChecker / StopCondition）
 │   ├── permissions/           # 权限系统（Checker / Modes / Settings）
 │   ├── hooks/                 # Hook 系统（Events / Registry / Executor）
-│   ├── memory/                # 记忆系统（Manager / Relevance）
+│   ├── memory/                # 记忆系统（Manager / Relevance / Cache）
 │   ├── knowledge/             # 知识库协议（Retriever Protocol）
 │   ├── coordinator/           # 多 Agent 编排（Coordinator / Worker / Team）
 │   ├── prompts/               # 提示词管理（PromptManager）
 │   ├── tools/                 # 工具扩展
 │   └── backends/              # 后端抽象
-├── tests/                     # 单元测试（142 个用例）
+├── tests/                     # 单元测试（195 个用例）
 ├── examples/                  # 使用示例
 │   ├── basic_agent.py         # 最简用法
 │   ├── custom_permissions.py  # 权限控制
@@ -433,7 +521,8 @@ HZAgentBase/
 │   └── server_integration.py  # FastAPI 服务器集成
 └── docs/
     ├── technical_roadmap.md   # 技术路线图
-    └── api_reference.md       # API 参考文档
+    ├── api_reference.md       # API 参考文档
+    └── security_plan.md       # 安全防护方案
 ```
 
 ## 致谢
