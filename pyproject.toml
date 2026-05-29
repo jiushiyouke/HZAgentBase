@@ -21,11 +21,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-[project.urls]
-Homepage = "https://github.com/jiushiyouke/HZAgentBase"
-Repository = "https://github.com/jiushiyouke/HZAgentBase"
-"Bug Tracker" = "https://github.com/jiushiyouke/HZAgentBase/issues"
-
 dependencies = [
     "deepagents>=0.6.4,<0.7.0",
     "langchain-anthropic>=0.3.0",
@@ -38,6 +33,11 @@ dependencies = [
     "openai>=1.0",
     "python-dotenv>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jiushiyouke/HZAgentBase"
+Repository = "https://github.com/jiushiyouke/HZAgentBase"
+"Bug Tracker" = "https://github.com/jiushiyouke/HZAgentBase/issues"
 
 [project.optional-dependencies]
 dev = [
