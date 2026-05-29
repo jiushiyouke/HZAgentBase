@@ -27,8 +27,8 @@ class PermissionSettings:
     allowed_paths: list[str] = field(default_factory=list)
     denied_paths: list[str] = field(default_factory=list)
     denied_commands: list[str] = field(default_factory=lambda: [
-        r"rm\s+-rf?\s+/",           # rm -rf /
-        r"rm\s+-rf?\s+/\*",         # rm -rf /*
+        r"rm\s+(-[rRf]+\s+)*-?[rRf]+\s+/",  # rm -rf /, rm -r -f /, rm -R / 等
+        r"rm\s+(-[rRf]+\s+)*-?[rRf]+\s+/\*",  # rm -rf /*
         r"mkfs",                     # mkfs（格式化磁盘）
         r"dd\s+if=",                # dd if=（磁盘写入）
         r":\(\)\{.*:\|:.*\};:",     # fork bomb
