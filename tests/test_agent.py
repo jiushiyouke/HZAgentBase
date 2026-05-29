@@ -36,7 +36,8 @@ class TestGetModel:
 
     def test_non_deepseek_model_uses_openai_url(self):
         """gpt-* 模型应使用 OPENAI_BASE_URL。"""
-        with patch("hz_agent_base.agent.ChatOpenAI") as mock_cls:
+        with patch("hz_agent_base.agent.ChatOpenAI") as mock_cls, \
+             patch("hz_agent_base.agent.MODEL_BASE_URL", ""):
             mock_cls.return_value = MagicMock()
             _get_model("gpt-4")
             call_kwargs = mock_cls.call_args[1]

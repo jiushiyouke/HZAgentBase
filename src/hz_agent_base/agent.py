@@ -298,7 +298,7 @@ def run_agent(
     config = {
         "configurable": {
             "thread_id": thread_id,
-            "user_id": user_id or thread_id or "",
+            "user_id": user_id or thread_id or "default-user",
         }
     }
 
