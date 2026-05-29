@@ -117,6 +117,7 @@ def create_agent(
     permissions: PermissionSettings | None = None,
     hooks: HookRegistry | None = None,
     memory_path: str | None = None,
+    memory_isolate_by_user: bool = False,
     retriever: Retriever | None = None,
     knowledge_top_k: int = KNOWLEDGE_TOP_K,
     filesystem: bool | dict[str, Any] = False,
@@ -177,7 +178,7 @@ def create_agent(
 
     # 3. Memory middleware (inject/extract persistent knowledge)
     if memory_path is not None:
-        harness_middleware.append(MemoryMiddleware(memory_path))
+        harness_middleware.append(MemoryMiddleware(memory_path, isolate_by_user=memory_isolate_by_user))
 
     # 4. Knowledge middleware (RAG retrieval from knowledge base)
     if retriever is not None:

@@ -39,10 +39,17 @@ class CommandHookDefinition(HookDefinition):
     命令通过环境变量接收 Hook 上下文：
     - HZ_HOOK_EVENT: 事件名称
     - HZ_HOOK_PAYLOAD: JSON 编码的事件数据
+
+    安全说明：
+    - shell=False（默认）：命令通过 shlex.split() 拆分为参数列表，安全执行
+    - shell=True：命令直接传给 shell，支持管道/重定向等，但有注入风险
     """
 
     command: str = ""
     """要执行的 shell 命令。"""
+
+    shell: bool = False
+    """是否使用 shell 模式执行。默认 False（安全模式）。"""
 
 
 @dataclass
