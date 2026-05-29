@@ -26,8 +26,16 @@ from .hooks import HookRegistry
 
 # 各提供商的默认 API 地址（MODEL_BASE_URL 未设置时使用）
 _PROVIDER_DEFAULT_URLS = {
+    # 云端提供商
     "deepseek": "https://api.deepseek.com/v1",
     "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta",
+    # 本地服务
+    "ollama": "http://localhost:11434/v1",
+    "vllm": "http://localhost:8000/v1",
+    "lmstudio": "http://localhost:1234/v1",
+    "localai": "http://localhost:8080/v1",
 }
 
 
@@ -35,11 +43,11 @@ def _get_model(model: str | Any | None = None) -> Any:
     """Resolve model string to a LangChain chat model instance.
 
     根据 DEFAULT_MODEL 的值自动选择提供商，统一使用 MODEL_API_KEY 认证：
-    - deepseek-*  → DeepSeek API（OpenAI 兼容）
+    - deepseek-*  → DeepSeek API
     - gpt-* / o1-* / o3-* → OpenAI API
     - claude-*    → Anthropic API（langchain-anthropic）
     - gemini-*    → Google Gemini API（langchain-google-genai）
-    - 其他        → OpenAI 兼容方式（Ollama、vLLM 等）
+    - 其他        → OpenAI 兼容方式（Ollama、vLLM、LM Studio 等，需设置 MODEL_BASE_URL）
 
     也可以直接传入已配置好的 LangChain 模型实例，会原样返回。
 
