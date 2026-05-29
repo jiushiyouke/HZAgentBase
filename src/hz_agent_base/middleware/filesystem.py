@@ -25,6 +25,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 FILE_TOOLS = {
     "write_file", "edit_file", "read_file",
     "create_file", "delete_file", "rename_file",
+    "remove_file", "move_file",
     "write", "edit", "read",
 }
 

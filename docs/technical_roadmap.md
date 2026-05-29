@@ -426,7 +426,7 @@ agent = create_agent(
 [project]
 name = "hz-agent-base"
 version = "0.1.0"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.13"
 
 dependencies = [
     "deepagents>=0.6.4,<0.7.0",
