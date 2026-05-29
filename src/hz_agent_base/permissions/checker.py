@@ -111,22 +111,32 @@ class PermissionChecker:
         return self._mode_fallback(tool_name, is_read_only)
 
     def _is_sensitive_path(self, file_path: str) -> bool:
-        """检查路径是否匹配敏感路径模式。"""
-        expanded = str(Path(file_path).expanduser())
+        """检查路径是否匹配敏感路径模式。
+
+        使用 Path.resolve() 规范化路径，防止 ../ 穿越。
+        """
+        # 规范化路径：消除 ../、~、符号链接
+        normalized = str(Path(file_path).expanduser().resolve())
         for pattern in SENSITIVE_PATH_PATTERNS:
             expanded_pattern = str(Path(pattern).expanduser())
-            if fnmatch.fnmatch(expanded, expanded_pattern):
+            if fnmatch.fnmatch(normalized, expanded_pattern):
                 return True
             # 同时检查文件名匹配
-            if fnmatch.fnmatch(file_path, pattern):
+            if fnmatch.fnmatch(Path(normalized).name, pattern):
                 return True
         return False
 
     def _check_path_rules(self, file_path: str) -> PermissionDecision | None:
-        """检查路径的允许/拒绝规则。无匹配时返回 None。"""
+        """检查路径的允许/拒绝规则。无匹配时返回 None。
+
+        使用 Path.resolve() 规范化路径，防止 ../ 穿越。
+        """
+        normalized = str(Path(file_path).expanduser().resolve())
+
         # 先检查拒绝路径
         for pattern in self.settings.denied_paths:
-            if fnmatch.fnmatch(file_path, pattern):
+            expanded_pattern = str(Path(pattern).expanduser())
+            if fnmatch.fnmatch(normalized, expanded_pattern):
                 return PermissionDecision(
                     allowed=False,
                     reason=f"Path matches denied pattern: {pattern}",
@@ -134,16 +144,23 @@ class PermissionChecker:
 
         # 再检查允许路径
         for pattern in self.settings.allowed_paths:
-            if fnmatch.fnmatch(file_path, pattern):
+            expanded_pattern = str(Path(pattern).expanduser())
+            if fnmatch.fnmatch(normalized, expanded_pattern):
                 return PermissionDecision(allowed=True)
 
         return None
 
     def _is_denied_command(self, command: str) -> bool:
-        """检查命令是否匹配黑名单模式（子串匹配）。"""
+        """检查命令是否匹配黑名单模式（正则匹配）。"""
+        import re
         for pattern in self.settings.denied_commands:
-            if pattern in command:
-                return True
+            try:
+                if re.search(pattern, command, re.IGNORECASE):
+                    return True
+            except re.error:
+                # 正则无效时降级为子串匹配
+                if pattern in command:
+                    return True
         return False
 
     def _mode_fallback(self, tool_name: str, is_read_only: bool) -> PermissionDecision:

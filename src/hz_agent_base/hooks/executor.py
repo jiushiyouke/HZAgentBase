@@ -189,8 +189,13 @@ class HookExecutor:
         hook: CommandHookDefinition,
         payload: dict[str, Any],
     ) -> HookResult:
-        """执行 shell 命令 Hook。"""
+        """执行 shell 命令 Hook。
+
+        默认 shell=False（安全模式），通过 shlex.split() 拆分命令。
+        显式声明 shell=True 时才使用 shell 模式。
+        """
         import os
+        import shlex
 
         # 将事件信息注入环境变量，供命令脚本读取
         env = os.environ.copy()
@@ -198,14 +203,27 @@ class HookExecutor:
         env["HZ_HOOK_PAYLOAD"] = json.dumps(payload)
 
         try:
-            result = subprocess.run(
-                hook.command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=hook.timeout_seconds,
-                env=env,
-            )
+            if hook.shell:
+                # 显式声明 shell=True，用户自行承担注入风险
+                result = subprocess.run(
+                    hook.command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=hook.timeout_seconds,
+                    env=env,
+                )
+            else:
+                # 安全模式：拆分为参数列表，不经过 shell
+                args = shlex.split(hook.command)
+                result = subprocess.run(
+                    args,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=hook.timeout_seconds,
+                    env=env,
+                )
 
             if result.returncode != 0:
                 blocked = hook.block_on_failure
@@ -287,12 +305,13 @@ class HookExecutor:
         - {"ok": true} → 放行
         - {"ok": false, "reason": "..."} → 阻止
 
-        未配置 model 时直接放行。
+        未配置 model 时默认阻止（安全优先）。
         """
         if not self.model:
             return HookResult(
-                success=True,
-                reason="No model configured for PromptHook, skipped",
+                success=False,
+                blocked=True,
+                reason="No model configured for PromptHook, blocked by default",
             )
 
         try:
@@ -341,12 +360,13 @@ class HookExecutor:
         创建一个轻量子 Agent，使用 hook.agent_prompt 作为系统提示词，
         将事件数据作为输入，根据子 Agent 的响应判断是否放行。
 
-        未配置 model 时直接放行。
+        未配置 model 时默认阻止（安全优先）。
         """
         if not self.model:
             return HookResult(
-                success=True,
-                reason="No model configured for AgentHook, skipped",
+                success=False,
+                blocked=True,
+                reason="No model configured for AgentHook, blocked by default",
             )
 
         try:

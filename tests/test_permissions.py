@@ -21,10 +21,13 @@ class TestPermissionSettings:
         assert settings.mode == PermissionMode.FULL_AUTO
 
     def test_default_denied_commands(self):
-        """默认应包含危险命令模式。"""
+        """默认应包含危险命令模式（正则匹配）。"""
+        import re
         settings = PermissionSettings()
-        assert "rm -rf /" in settings.denied_commands
-        assert "mkfs" in settings.denied_commands
+        # 验证正则模式能匹配对应的危险命令
+        patterns = settings.denied_commands
+        assert any(re.search(p, "rm -rf /") for p in patterns), "应匹配 rm -rf /"
+        assert any(re.search(p, "mkfs") for p in patterns), "应匹配 mkfs"
 
     def test_sensitive_paths_not_empty(self):
         """敏感路径列表不应为空。"""
