@@ -45,8 +45,11 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+def chat(req: ChatRequest):
     """处理用户消息。
+
+    注意：run_agent() 是同步阻塞调用，这里用普通 def 而非 async def，
+    FastAPI 会自动将其放入线程池执行，不会阻塞事件循环。
 
     user_id 作为 thread_id，天然实现多用户隔离。
     不同用户的对话互不干扰。
