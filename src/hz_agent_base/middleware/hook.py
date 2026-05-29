@@ -1,8 +1,12 @@
 """Hook 中间件 — 在生命周期事件时执行已注册的钩子。
 
 支持的事件：
-- USER_PROMPT_SUBMIT: 用户提交消息时触发，Hook 可阻止后续处理
-- PRE_TOOL_USE / POST_TOOL_USE: 工具执行前后触发
+- SESSION_START: Agent 执行开始前触发（before_agent）
+- SESSION_END: Agent 执行结束后触发（after_agent）
+- USER_PROMPT_SUBMIT: 用户提交消息时触发（wrap_model_call）
+- PRE_TOOL_USE: 工具执行前触发（wrap_tool_call）
+- POST_TOOL_USE: 工具执行后触发（wrap_tool_call）
+- STOP: Agent 停止时触发（after_model，需配置 can_jump_to）
 """
 
 from __future__ import annotations
@@ -19,6 +23,12 @@ from ..hooks.events import HookEvent
 class HookMiddleware(AgentMiddleware):
     """在生命周期事件时执行已注册 Hook 的中间件。
 
+    通过 AgentMiddleware 的生命周期方法实现全部 HookEvent 触发：
+    - before_agent → SESSION_START
+    - after_agent → SESSION_END
+    - wrap_model_call → USER_PROMPT_SUBMIT
+    - wrap_tool_call → PRE_TOOL_USE / POST_TOOL_USE
+
     Args:
         registry: Hook 注册表。
         model: LLM 模型实例，供 PromptHook 和 AgentHook 使用。可选。
@@ -27,9 +37,31 @@ class HookMiddleware(AgentMiddleware):
     def __init__(self, registry: HookRegistry, model: Any = None):
         self.executor = HookExecutor(registry, model=model)
 
-    def wrap_model_call(self, request, handler) -> Any:
-        """在模型调用前/后执行 Hook。"""
-        # 提取用户消息用于 Hook 上下文
+    # ================================================================
+    # SESSION_START / SESSION_END
+    # ================================================================
+
+    def before_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        """Agent 执行开始前触发 SESSION_START。"""
+        self.executor.execute(HookEvent.SESSION_START, {
+            "state_keys": list(state.keys()) if isinstance(state, dict) else [],
+        })
+        return None  # 不修改状态
+
+    def after_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        """Agent 执行结束后触发 SESSION_END。"""
+        self.executor.execute(HookEvent.SESSION_END, {
+            "state_keys": list(state.keys()) if isinstance(state, dict) else [],
+        })
+        return None
+
+    # ================================================================
+    # USER_PROMPT_SUBMIT
+    # ================================================================
+
+    def wrap_model_call(self, request: Any, handler: Any) -> Any:
+        """用户提交消息时触发 USER_PROMPT_SUBMIT。"""
+        # 提取用户消息
         messages = request.messages or []
         user_content = ""
         for msg in messages:
@@ -43,10 +75,54 @@ class HookMiddleware(AgentMiddleware):
                 "prompt": user_content,
             })
             if result.blocked:
-                # Hook 阻止了操作，返回合成响应而不是调用模型
                 from langchain_core.messages import AIMessage
                 return {"messages": [AIMessage(content=f"Blocked by hook: {result.reason}")]}
 
-        # 正常调用模型
+        return handler(request)
+
+    # ================================================================
+    # PRE_TOOL_USE / POST_TOOL_USE
+    # ================================================================
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> Any:
+        """工具执行前后触发 PRE_TOOL_USE 和 POST_TOOL_USE。
+
+        wrap_tool_call 接收 ToolCallRequest，包含：
+        - tool_call: dict（name, args, id）
+        - tool: BaseTool 实例或 None
+        - state: Agent 状态
+        - runtime: 运行时上下文
+        """
+        tool_call = request.tool_call
+        tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else getattr(tool_call, "name", "")
+        tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
+
+        # 触发 PRE_TOOL_USE
+        pre_result = self.executor.execute(
+            HookEvent.PRE_TOOL_USE,
+            {"tool_name": tool_name, "args": tool_args},
+            tool_name=tool_name,
+        )
+        if pre_result.blocked:
+            # Hook 阻止了工具执行，返回错误消息
+            from langchain_core.messages import ToolMessage
+            return ToolMessage(
+                content=f"Blocked by hook: {pre_result.reason}",
+                tool_call_id=tool_call.get("id", "") if isinstance(tool_call, dict) else getattr(tool_call, "id", ""),
+            )
+
+        # 正常执行工具
         response = handler(request)
+
+        # 触发 POST_TOOL_USE
+        output = ""
+        if hasattr(response, "content"):
+            output = str(response.content)[:500]  # 截断避免 payload 过大
+
+        self.executor.execute(
+            HookEvent.POST_TOOL_USE,
+            {"tool_name": tool_name, "args": tool_args, "output": output},
+            tool_name=tool_name,
+        )
+
         return response
