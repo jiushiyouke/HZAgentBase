@@ -515,19 +515,37 @@ agent = create_agent(backend=LocalShellBackend())
 ## CLI 工具
 
 ```bash
+# 使用帮助
+hz-agent help
+
 # 交互式对话
 hz-agent chat
-
-# 带权限和审计
-hz-agent chat --permission full_auto --filesystem
-
-# 带共享规则
-hz-agent chat --rules ./prompts/shared/rules/
+hz-agent chat --stream               # 流式输出
+hz-agent chat --auto --filesystem    # 全自动 + 审计
 
 # 单次执行
-hz-agent run "帮我分析这段代码" --thread user-1
+hz-agent run "帮我分析这段代码"
+hz-agent run "分析数据" --stream      # 流式输出
+hz-agent run "写报告" --output json   # JSON 格式输出
 
-# 查看版本
+# 配置管理
+hz-agent config show                 # 查看所有配置
+hz-agent config check                # 检查环境和 API 连通性
+hz-agent config path                 # 显示 .env 路径
+
+# 记忆管理
+hz-agent memory list                 # 列出所有记忆
+hz-agent memory show <name>          # 查看记忆内容
+hz-agent memory search "Python"      # 搜索相关记忆
+hz-agent memory clear                # 清空记忆
+
+# 审计日志
+hz-agent audit show                  # 查看审计日志
+hz-agent audit stats                 # 统计汇总
+hz-agent audit export                # 导出为 CSV
+hz-agent audit verify                # 校验 HMAC 签名
+
+# 版本信息
 hz-agent version
 ```
 
