@@ -12,7 +12,7 @@ Usage:
     result_user_b = run_agent(agent, "帮我分析代码", thread_id="user-b-session-1")
 """
 
-from .agent import create_agent, run_agent
+from .agent import create_agent, run_agent, arun_agent, run_agent_stream, arun_agent_stream
 from .permissions import PermissionSettings, PermissionMode
 from .hooks import HookRegistry, HookEvent
 from .middleware import AgentMiddleware
@@ -28,6 +28,9 @@ __version__ = "0.1.0"
 __all__ = [
     "create_agent",
     "run_agent",
+    "arun_agent",
+    "run_agent_stream",
+    "arun_agent_stream",
     "PermissionSettings",
     "PermissionMode",
     "HookRegistry",

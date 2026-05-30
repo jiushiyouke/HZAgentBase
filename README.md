@@ -17,6 +17,9 @@
 - **安全加固** — 路径穿越防护、shell 注入防护、正则命令黑名单、跨用户记忆隔离、HTTP Hook 白名单
 - **高并发优化** — 记忆 LRU+TTL 缓存、审计批量缓冲写入、Hook 全局线程池并行执行
 - **多用户隔离** — 基于 LangGraph thread_id 的状态隔离，同一 agent 实例可并发服务多个用户
+- **异步 & 流式** — `arun_agent()` 异步调用、`run_agent_stream()` / `arun_agent_stream()` 逐 token 流式输出
+- **多租户支持** — `api_key` / `base_url` 参数支持不同用户使用不同 API 配置
+- **中间件优先级** — 自定义中间件可指定执行位置（BEFORE_ALL / AFTER_ALL 等）
 - **可插拔后端** — 由 Deep Agents 提供，支持本地 / 沙箱 / 远程执行环境
 - **CLI 工具** — 命令行交互界面
 
@@ -50,6 +53,38 @@ result_a = run_agent(agent, "帮我分析数据", thread_id="user-a")
 result_b = run_agent(agent, "写一个 Python 脚本", thread_id="user-b")
 ```
 
+**异步调用：**
+
+```python
+from hz_agent_base import arun_agent
+
+result = await arun_agent(agent, "分析数据", thread_id="user-a")
+```
+
+**流式输出（逐 token）：**
+
+```python
+from hz_agent_base import run_agent_stream
+
+for token in run_agent_stream(agent, "写个报告"):
+    print(token, end="", flush=True)  # 像打字一样逐字输出
+```
+
+**异步流式（FastAPI + SSE）：**
+
+```python
+from hz_agent_base import arun_agent_stream
+from fastapi.responses import StreamingResponse
+
+@app.post("/chat")
+async def chat(message: str):
+    async def generate():
+        async for token in arun_agent_stream(agent, message):
+            yield f"data: {token}\n\n"
+        yield "data: [DONE]\n\n"
+    return StreamingResponse(generate(), media_type="text/event-stream")
+```
+
 ## 配置
 
 复制 `.env-example` 为 `.env` 并填入配置：
@@ -57,6 +92,8 @@ result_b = run_agent(agent, "写一个 Python 脚本", thread_id="user-b")
 ```bash
 cp .env-example .env
 ```
+
+配置采用懒加载模式——`import hz_agent_base` 时不会读取 `.env`，只有第一次使用配置变量时才加载。
 
 支持多模型提供商，根据 `DEFAULT_MODEL` 的值自动选择对应的 API：
 
@@ -83,6 +120,24 @@ cp .env-example .env
 | `AUDIT_LOG_PATH` | 审计日志路径 | `.audit/audit.jsonl` |
 | `KNOWLEDGE_TOP_K` | 知识库检索条数 | `5` |
 
+## 多租户支持
+
+`create_agent()` 支持 `api_key` 和 `base_url` 参数，不同租户可用不同 API 配置：
+
+```python
+# 租户 A 用 DeepSeek
+agent_a = create_agent(model="deepseek-v4-flash", api_key="sk-aaa...")
+
+# 租户 B 用 OpenAI
+agent_b = create_agent(model="gpt-4", api_key="sk-bbb...", base_url="https://api.openai.com/v1")
+
+# 也可以直接传预配置的模型实例
+from langchain_openai import ChatOpenAI
+agent_c = create_agent(model=ChatOpenAI(model="gpt-4", api_key="sk-ccc..."))
+```
+
+参数优先级：`api_key`/`base_url` 参数 > `.env` 全局配置 > 提供商默认值。
+
 ## 中间件管道
 
 `create_agent()` 按以下顺序组装中间件管道，每个中间件可拦截和修改模型请求：
@@ -107,6 +162,23 @@ cp .env-example .env
 | Filesystem | 关闭 | `filesystem=True` 或 `filesystem={...}` |
 | Resilient | 开启 | `max_retries=2`，可选 `cancellation_checker`、`stop_condition` |
 | Coordinator | 关闭 | `workers=[WorkerConfig(...)]` |
+
+**自定义中间件优先级：**
+
+```python
+from hz_agent_base import create_agent
+from hz_agent_base.utils.constants import BEFORE_ALL, AFTER_ALL
+
+agent = create_agent(
+    middleware=[
+        (RequestLogger(), BEFORE_ALL),     # 最前面执行
+        (BusinessContext()),                # 默认位置（DEFAULT=30）
+        (OutputSanitizer(), AFTER_ALL),    # 最后面执行
+    ],
+)
+```
+
+可用的优先级常量：`BEFORE_ALL=0`、`PERMISSION=5`、`HOOKS=10`、`MEMORY=20`、`KNOWLEDGE=25`、`DEFAULT=30`、`AUDIT=35`、`RESILIENT=40`、`COORDINATOR=50`、`AFTER_ALL=100`。
 
 ## 权限系统
 
@@ -475,12 +547,14 @@ hz-agent version
 | `knowledge_top_k` | `int` | 知识库每次检索条数，默认 5 |
 | `filesystem` | `bool \| dict` | 文件审计配置，False 为关闭 |
 | `workers` | `list[WorkerConfig] \| None` | Worker 配置列表，启用多 Agent 编排 |
-| `middleware` | `Sequence[AgentMiddleware] \| None` | 自定义中间件列表 |
+| `middleware` | `Sequence[AgentMiddleware \| tuple] \| None` | 自定义中间件列表，支持 `(middleware, priority)` 元组 |
 | `backend` | `BackendProtocol \| None` | 文件系统/沙箱后端 |
 | `skills` | `list[str] \| None` | 技能目录列表，由 SkillsMiddleware 加载 |
 | `cancellation_checker` | `CancellationChecker \| None` | 取消检查器（实现 CancellationChecker 协议） |
 | `stop_condition` | `StopCondition \| None` | 终止条件（实现 StopCondition 协议） |
 | `max_retries` | `int` | LLM 调用失败重试次数，默认 2 |
+| `api_key` | `str \| None` | API Key 覆盖，多租户使用。None 时读 .env |
+| `base_url` | `str \| None` | Base URL 覆盖，多租户使用。None 时读 .env |
 
 ## 项目结构
 
@@ -505,8 +579,9 @@ HZAgentBase/
 │   ├── coordinator/           # 多 Agent 编排（Coordinator / Worker / Team）
 │   ├── prompts/               # 提示词管理（PromptManager）
 │   ├── tools/                 # 工具扩展
-│   └── backends/              # 后端抽象
-├── tests/                     # 单元测试（195 个用例）
+│   ├── backends/              # 后端抽象
+│   └── utils/                 # 工具类（常量定义等）
+├── tests/                     # 单元测试（220+ 个用例）
 ├── examples/                  # 使用示例
 │   ├── basic_agent.py         # 最简用法
 │   ├── custom_permissions.py  # 权限控制

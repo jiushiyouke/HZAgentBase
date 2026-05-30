@@ -1,13 +1,16 @@
 """中间件包。
 
-HZAgentBase 的中间件管道按以下顺序执行：
-1. PermissionMiddleware — 权限检查
-2. HookMiddleware — 生命周期事件
-3. MemoryMiddleware — 记忆注入/提取
-4. KnowledgeMiddleware — 知识库 RAG 检索
-5. FileAuditMiddleware — 文件审计
-6. [用户自定义 Middleware]
-7. CoordinatorMiddleware — 多 Agent 编排
+HZAgentBase 的中间件管道按以下顺序执行（数字越小越先执行）：
+- BEFORE_ALL=0   — 用户自定义（最前面）
+- PERMISSION=5   — 权限检查
+- HOOKS=10       — 生命周期事件
+- MEMORY=20      — 记忆注入/提取
+- KNOWLEDGE=25   — 知识库 RAG 检索
+- DEFAULT=30     — 用户自定义（默认位置）
+- AUDIT=35       — 文件审计
+- RESILIENT=40   — 重试/取消/终止
+- COORDINATOR=50 — 多 Agent 编排
+- AFTER_ALL=100  — 用户自定义（最后面）
 """
 
 from langchain.agents.middleware.types import AgentMiddleware
@@ -18,6 +21,10 @@ from .memory import MemoryMiddleware
 from .knowledge import KnowledgeMiddleware
 from .filesystem import FileAuditMiddleware
 from .resilient import ResilientMiddleware
+from ..utils.constants import (
+    BEFORE_ALL, PERMISSION, HOOKS, MEMORY, KNOWLEDGE,
+    DEFAULT, AUDIT, RESILIENT, COORDINATOR, AFTER_ALL,
+)
 
 __all__ = [
     "AgentMiddleware",
@@ -27,4 +34,6 @@ __all__ = [
     "KnowledgeMiddleware",
     "FileAuditMiddleware",
     "ResilientMiddleware",
+    "BEFORE_ALL", "PERMISSION", "HOOKS", "MEMORY", "KNOWLEDGE",
+    "DEFAULT", "AUDIT", "RESILIENT", "COORDINATOR", "AFTER_ALL",
 ]

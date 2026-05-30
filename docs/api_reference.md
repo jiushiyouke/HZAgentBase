@@ -46,11 +46,13 @@ agent = create_agent(
 | `knowledge_top_k` | `int` | `5` | 每次检索 Top-K 条 |
 | `filesystem` | `bool \| dict` | `False` | 文件审计配置 |
 | `workers` | `list[WorkerConfig] \| None` | `None` | Worker 配置列表 |
-| `middleware` | `Sequence[AgentMiddleware] \| None` | `None` | 自定义中间件列表 |
+| `middleware` | `Sequence[AgentMiddleware \| tuple] \| None` | `None` | 自定义中间件列表，支持 `(middleware, priority)` 元组 |
 | `backend` | `BackendProtocol \| None` | `None` | 文件系统/沙箱后端 |
 | `cancellation_checker` | `CancellationChecker \| None` | `None` | 取消检查器，实现 `is_cancelled(thread_id)` 方法 |
 | `stop_condition` | `StopCondition \| None` | `None` | 终止条件，实现 `should_stop(messages)` 方法 |
 | `max_retries` | `int` | `2` | LLM 调用失败时的最大重试次数（指数退避） |
+| `api_key` | `str \| None` | `None` | API Key 覆盖，多租户使用 |
+| `base_url` | `str \| None` | `None` | Base URL 覆盖，多租户使用 |
 
 **返回值：** `CompiledStateGraph` — 线程安全的编译 Agent 实例。
 
@@ -82,6 +84,71 @@ result = run_agent(
 | `recursion_limit` | `int` | Agent 最大执行步数，防止死循环。默认从 `RECURSION_LIMIT` 环境变量读取（25） |
 
 **返回值：** `dict[str, Any]` — 包含 `messages` 等字段的响应状态。
+
+---
+
+### `arun_agent()`
+
+异步版本的 `run_agent()`，使用 `agent.ainvoke()` 调用。参数和返回值与 `run_agent()` 完全相同。
+
+```python
+from hz_agent_base import arun_agent
+
+result = await arun_agent(
+    agent,
+    "帮我分析这段代码",
+    thread_id="user-1",
+    user_id="alice",
+)
+```
+
+---
+
+### `run_agent_stream()`
+
+同步流式运行 Agent，逐 token 返回 LLM 输出。使用 `stream_events` 获取 token 级流式数据。
+
+```python
+from hz_agent_base import run_agent_stream
+
+for token in run_agent_stream(agent, "写个报告"):
+    print(token, end="", flush=True)
+```
+
+**参数：** 与 `run_agent()` 相同。
+
+**返回值：** `Generator[str, None, None]` — 每次 yield 一个 token 字符串。
+
+---
+
+### `arun_agent_stream()`
+
+异步流式版本，适用于 FastAPI + SSE 等异步场景。
+
+```python
+from hz_agent_base import arun_agent_stream
+
+async for token in arun_agent_stream(agent, "写个报告"):
+    await send_to_client(token)
+```
+
+**参数：** 与 `run_agent()` 相同。
+
+**返回值：** `AsyncGenerator[str, None]` — 每次 yield 一个 token 字符串。
+
+**FastAPI + SSE 示例：**
+
+```python
+from fastapi.responses import StreamingResponse
+
+@app.post("/chat")
+async def chat(message: str):
+    async def generate():
+        async for token in arun_agent_stream(agent, message):
+            yield f"data: {token}\n\n"
+        yield "data: [DONE]\n\n"
+    return StreamingResponse(generate(), media_type="text/event-stream")
+```
 
 ---
 
@@ -331,6 +398,37 @@ class MyMiddleware(AgentMiddleware):
 - `messages: list` — 消息列表
 - `tools: list` — 可用工具列表
 - `override(**kwargs)` — 创建修改后的新实例（不修改原对象）
+
+**中间件优先级：**
+
+自定义中间件可通过 `(middleware, priority)` 元组指定执行位置：
+
+```python
+from hz_agent_base.utils.constants import BEFORE_ALL, AFTER_ALL, DEFAULT
+
+agent = create_agent(
+    middleware=[
+        (RequestLogger(), BEFORE_ALL),     # 最前面
+        (BusinessContext()),                # 默认位置（DEFAULT=30）
+        (OutputSanitizer(), AFTER_ALL),    # 最后面
+    ],
+)
+```
+
+可用常量（数字越小越先执行）：
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `BEFORE_ALL` | 0 | 最前面 |
+| `PERMISSION` | 5 | 权限中间件位置 |
+| `HOOKS` | 10 | Hook 中间件位置 |
+| `MEMORY` | 20 | 记忆中间件位置 |
+| `KNOWLEDGE` | 25 | 知识库中间件位置 |
+| `DEFAULT` | 30 | 用户自定义中间件默认位置 |
+| `AUDIT` | 35 | 文件审计中间件位置 |
+| `RESILIENT` | 40 | 容错中间件位置 |
+| `COORDINATOR` | 50 | 多 Agent 编排中间件位置 |
+| `AFTER_ALL` | 100 | 最后面 |
 
 ---
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable, Sequence
+from typing import Any, AsyncGenerator, Callable, Generator, Sequence
 
 from deepagents import create_deep_agent
 from deepagents.graph import CompiledStateGraph
@@ -16,6 +16,16 @@ from .config import (
     MODEL_REQUEST_TIMEOUT, MODEL_MAX_RETRIES, RECURSION_LIMIT,
 )
 from .middleware import AgentMiddleware
+from .utils.constants import (
+    DEFAULT as MW_DEFAULT,
+    PERMISSION as MW_PERMISSION,
+    HOOKS as MW_HOOKS,
+    MEMORY as MW_MEMORY,
+    KNOWLEDGE as MW_KNOWLEDGE,
+    AUDIT as MW_AUDIT,
+    RESILIENT as MW_RESILIENT,
+    COORDINATOR as MW_COORDINATOR,
+)
 from .middleware.permission import PermissionMiddleware
 from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
@@ -162,7 +172,7 @@ def create_agent(
     knowledge_top_k: int = KNOWLEDGE_TOP_K,
     filesystem: bool | dict[str, Any] = False,
     workers: list[WorkerConfig] | None = None,
-    middleware: Sequence[AgentMiddleware] | None = None,
+    middleware: Sequence[AgentMiddleware | tuple[AgentMiddleware, int]] | None = None,
     backend: BackendProtocol | None = None,
     skills: list[str] | None = None,
     cancellation_checker: Any | None = None,
@@ -212,52 +222,60 @@ def create_agent(
     # 提前解析 model，供 HookMiddleware 使用（PromptHook / AgentHook 需要 LLM）
     resolved_model = _get_model(model, api_key=api_key, base_url=base_url)
 
-    harness_middleware: list[AgentMiddleware] = []
+    # 中间件管道：(优先级, middleware) 元组，数字越小越先执行
+    pipeline: list[tuple[int, AgentMiddleware]] = []
 
     # 1. Permission middleware (first - gates all tool calls)
     if permissions is None:
         permissions = PermissionSettings()
-    harness_middleware.append(PermissionMiddleware(permissions))
+    pipeline.append((MW_PERMISSION, PermissionMiddleware(permissions)))
 
     # 2. Hook middleware (lifecycle events)
     if hooks is not None:
-        harness_middleware.append(HookMiddleware(hooks, model=resolved_model))
+        pipeline.append((MW_HOOKS, HookMiddleware(hooks, model=resolved_model)))
 
     # 3. Memory middleware (inject/extract persistent knowledge)
     if memory_path is not None:
-        harness_middleware.append(MemoryMiddleware(memory_path, isolate_by_user=memory_isolate_by_user))
+        pipeline.append((MW_MEMORY, MemoryMiddleware(memory_path, isolate_by_user=memory_isolate_by_user)))
 
     # 4. Knowledge middleware (RAG retrieval from knowledge base)
     if retriever is not None:
-        harness_middleware.append(KnowledgeMiddleware(retriever, top_k=knowledge_top_k))
+        pipeline.append((MW_KNOWLEDGE, KnowledgeMiddleware(retriever, top_k=knowledge_top_k)))
 
     # 5. Filesystem middleware (audit and change tracking)
     if filesystem:
-        # 默认配置：开启审计、开启变更追踪、日志路径从 .env 读取
         default_fs_opts = {"log_path": AUDIT_LOG_PATH}
         if isinstance(filesystem, dict):
-            # 移除 audit 键，防止意外关闭审计（传 dict 表示配置，关闭请用 False）
             fs_opts = {k: v for k, v in filesystem.items() if k != "audit"}
             default_fs_opts.update(fs_opts)
-        harness_middleware.append(FileAuditMiddleware(**default_fs_opts))
+        pipeline.append((MW_AUDIT, FileAuditMiddleware(**default_fs_opts)))
 
-    # 6. User-provided middleware
+    # 6. User-provided middleware（支持 (middleware, rank) 元组或直接传 middleware）
     if middleware:
-        harness_middleware.extend(middleware)
+        for item in middleware:
+            if isinstance(item, tuple):
+                mw, rank = item
+                pipeline.append((rank, mw))
+            else:
+                pipeline.append((MW_DEFAULT, item))
 
     # 7. Resilient middleware (retry, cancellation, stop condition)
     if cancellation_checker is not None or stop_condition is not None or max_retries > 0:
-        harness_middleware.append(ResilientMiddleware(
+        pipeline.append((MW_RESILIENT, ResilientMiddleware(
             cancellation_checker=cancellation_checker,
             stop_condition=stop_condition,
             max_retries=max_retries,
-        ))
+        )))
 
     # 8. Coordinator middleware (multi-agent orchestration)
     coordinator = None
     if workers:
         coordinator = CoordinatorMiddleware(workers, shared_rules=rules)
-        harness_middleware.append(coordinator)
+        pipeline.append((MW_COORDINATOR, coordinator))
+
+    # 按优先级排序
+    pipeline.sort(key=lambda x: x[0])
+    harness_middleware = [mw for _, mw in pipeline]
 
     # 构建 create_deep_agent 参数
     agent_kwargs: dict[str, Any] = {
@@ -326,3 +344,135 @@ def run_agent(
     }
 
     return agent.invoke(input_state, config=config, recursion_limit=recursion_limit)
+
+
+def _build_run_config(
+    thread_id: str | None,
+    user_id: str | None,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """构建 run_agent 系列函数共用的 config 和 input_state。"""
+    if thread_id is None:
+        thread_id = str(uuid.uuid4())
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": user_id or thread_id or "default-user",
+        }
+    }
+
+    return thread_id, config
+
+
+async def arun_agent(
+    agent: CompiledStateGraph,
+    message: str,
+    *,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    recursion_limit: int = RECURSION_LIMIT,
+) -> dict[str, Any]:
+    """异步运行 Agent（使用 ainvoke）。
+
+    Args:
+        agent: create_agent() 返回的编译 Agent。
+        message: 用户消息。
+        thread_id: 线程 ID，用于多用户隔离。None 时自动生成。
+        user_id: 用户标识，用于记忆隔离。
+        recursion_limit: Agent 最大执行步数。
+
+    Returns:
+        Agent 响应状态，包含 messages 等字段。
+    """
+    if agent is None:
+        raise ValueError("agent must not be None. Use create_agent() to create one.")
+    if not message or not isinstance(message, str):
+        raise ValueError("message must be a non-empty string.")
+
+    _, config = _build_run_config(thread_id, user_id)
+
+    input_state = {
+        "messages": [{"role": "user", "content": message}],
+    }
+
+    return await agent.ainvoke(input_state, config=config, recursion_limit=recursion_limit)
+
+
+def run_agent_stream(
+    agent: CompiledStateGraph,
+    message: str,
+    *,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    recursion_limit: int = RECURSION_LIMIT,
+) -> Generator[str, None, None]:
+    """同步流式运行 Agent，逐 token 返回 LLM 输出。
+
+    使用 stream_events 获取 token 级流式输出。
+
+    Args:
+        agent: create_agent() 返回的编译 Agent。
+        message: 用户消息。
+        thread_id: 线程 ID。None 时自动生成。
+        user_id: 用户标识。
+        recursion_limit: Agent 最大执行步数。
+
+    Yields:
+        LLM 生成的每个 token 字符串。
+    """
+    if agent is None:
+        raise ValueError("agent must not be None. Use create_agent() to create one.")
+    if not message or not isinstance(message, str):
+        raise ValueError("message must be a non-empty string.")
+
+    _, config = _build_run_config(thread_id, user_id)
+
+    input_state = {
+        "messages": [{"role": "user", "content": message}],
+    }
+
+    for event in agent.stream_events(input_state, config=config, recursion_limit=recursion_limit, version="v2"):
+        if event.get("event") == "on_chat_model_stream":
+            chunk = event.get("data", {}).get("chunk")
+            if chunk and hasattr(chunk, "content") and chunk.content:
+                yield chunk.content
+
+
+async def arun_agent_stream(
+    agent: CompiledStateGraph,
+    message: str,
+    *,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    recursion_limit: int = RECURSION_LIMIT,
+) -> AsyncGenerator[str, None]:
+    """异步流式运行 Agent，逐 token 返回 LLM 输出。
+
+    使用 astream_events 获取 token 级流式输出。
+
+    Args:
+        agent: create_agent() 返回的编译 Agent。
+        message: 用户消息。
+        thread_id: 线程 ID。None 时自动生成。
+        user_id: 用户标识。
+        recursion_limit: Agent 最大执行步数。
+
+    Yields:
+        LLM 生成的每个 token 字符串。
+    """
+    if agent is None:
+        raise ValueError("agent must not be None. Use create_agent() to create one.")
+    if not message or not isinstance(message, str):
+        raise ValueError("message must be a non-empty string.")
+
+    _, config = _build_run_config(thread_id, user_id)
+
+    input_state = {
+        "messages": [{"role": "user", "content": message}],
+    }
+
+    async for event in agent.astream_events(input_state, config=config, recursion_limit=recursion_limit, version="v2"):
+        if event.get("event") == "on_chat_model_stream":
+            chunk = event.get("data", {}).get("chunk")
+            if chunk and hasattr(chunk, "content") and chunk.content:
+                yield chunk.content
