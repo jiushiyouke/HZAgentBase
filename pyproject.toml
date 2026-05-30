@@ -39,7 +39,7 @@ dependencies = [
 anthropic = ["langchain-anthropic>=0.3.0"]
 gemini = ["langchain-google-genai>=4.2.2"]
 all-providers = [
-    "hz-agent-base[anthropic,deepseek,gemini]",
+    "hz-agent-base[anthropic,gemini]",
 ]
 dev = [
     "pytest>=7.0",
