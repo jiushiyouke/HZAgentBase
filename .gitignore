@@ -55,7 +55,7 @@ Thumbs.db
 tool_usage.log
 
 # 技术方案文档（不入库）
-*_plan.md
+*plan.md
 
 # Secrets and credentials
 **/.env
