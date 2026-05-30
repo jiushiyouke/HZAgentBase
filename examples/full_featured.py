@@ -39,10 +39,7 @@ from hz_agent_base.hooks import CommandHookDefinition
 class DemoRetriever:
     """演示用检索器，根据查询关键词返回预设文档片段。
 
-    生产环境应使用 hz-knowledge-base 的 ChromaRetriever：
-        from hz_knowledge_base import ChromaRetriever
-        retriever = ChromaRetriever("./knowledge_db")
-        retriever.load_directory("./docs/")
+    生产环境应替换为真实的 Retriever 实现（如 ChromaDB、FAISS 等）。
     """
 
     def __init__(self):

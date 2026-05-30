@@ -1,10 +1,9 @@
 """示例：使用知识库 RAG 检索。
 
-本示例使用 MockRetriever 演示知识库集成，无需安装 hz-knowledge-base。
-实际项目中可替换为 ChromaRetriever 等真实实现。
+本示例使用 MockRetriever 演示知识库集成。
+实际项目中可替换为任何实现 Retriever 协议的真实检索器。
 
 用法:
-    pip install hz-knowledge-base  # 安装独立知识库项目
     python examples/with_knowledge.py
 """
 
@@ -14,10 +13,7 @@ from hz_agent_base import create_agent, run_agent, Retriever, RetrievalResult
 class MockRetriever:
     """模拟知识库检索器，用于演示和测试。
 
-    实际项目中替换为：
-        from hz_knowledge_base import ChromaRetriever
-        retriever = ChromaRetriever("./knowledge_db")
-        retriever.load_directory("./docs/")
+    实际项目中替换为真实的 Retriever 实现（如 ChromaDB、FAISS 等）。
     """
 
     def __init__(self, knowledge: dict[str, str] | None = None):

@@ -237,7 +237,7 @@ HZAgentBase 通过 `Retriever` 协议接入知识库，不绑定具体实现：
 ```python
 from hz_agent_base import create_agent, Retriever, RetrievalResult
 
-# 实现 Retriever 协议（或使用 hz-knowledge-base 提供的实现）
+# 实现 Retriever 协议
 class MyRetriever:
     def retrieve(self, query: str, top_k: int = 5) -> list[RetrievalResult]:
         # 检索逻辑...

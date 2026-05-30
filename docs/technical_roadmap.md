@@ -167,17 +167,17 @@ class RetrievalResult:
 class Retriever(Protocol):
     def retrieve(self, query: str, top_k: int = 5) -> list[RetrievalResult]: ...
 
-# 独立项目 hz-knowledge-base 实现此协议：
+# 实现此协议的检索器示例：
 # - ChromaDB 向量存储
-# - sentence-transformers 本地嵌入（BAAI/bge-base-zh-v1.5）
+# - FAISS 向量索引
+# - sentence-transformers 本地嵌入
 # - PDF / Word / Markdown / TXT 文档加载
-# - 智能分块和增量更新
 
 # 集成方式：通过 create_agent(retriever=...) 注入
-agent = create_agent(retriever=ChromaRetriever("./knowledge_db"))
+agent = create_agent(retriever=my_retriever)
 ```
 
-**架构决策**：知识库实现独立为 `hz-knowledge-base` 项目，HZAgentBase 不引入 chromadb、PyTorch 等重依赖。
+**架构决策**：知识库实现独立于 HZAgentBase，不引入 chromadb、PyTorch 等重依赖。
 通过 Python `typing.Protocol` 实现运行时类型检查，任何实现 `retrieve()` 方法的对象均可接入。
 
 ## 五、对外 API 设计
@@ -202,8 +202,8 @@ agent = create_agent(
     backend=LocalBackend(),
 )
 
-# 带知识库的用法（需安装独立项目 hz-knowledge-base）
-from hz_knowledge_base import ChromaRetriever
+# 带知识库的用法（需实现 Retriever 协议）
+# from my_retriever import MyRetriever
 
 retriever = ChromaRetriever("./knowledge_db")
 retriever.load_directory("./docs/")
@@ -355,7 +355,7 @@ agent = create_agent(
 - [x] 集成到 create_agent()（filesystem 参数，可开关）
 - [x] 审计日志支持 JSONL 持久化
 - [x] 单元测试（知识库 12 个 + 文件审计 20 个）
-- [ ] **独立项目 hz-knowledge-base**（ChromaDB + embedding 实现）
+- [ ] **独立知识库实现**（ChromaDB + embedding）
 
 ### 阶段六：多 Agent 编排 ✅
 - [x] 从 OpenHarness 移植 Coordinator 模式
@@ -440,9 +440,9 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
-# 知识库功能由独立项目 hz-knowledge-base 提供
-# pip install hz-knowledge-base
-# 内部依赖：chromadb, sentence-transformers, pypdf, python-docx
+# 知识库功能由独立的 Retriever 实现提供
+# 可选实现：ChromaDB、FAISS、Elasticsearch 等
+# 内部依赖：chromadb / faiss-cpu, sentence-transformers
 ```
 
 ## 八、风险和应对

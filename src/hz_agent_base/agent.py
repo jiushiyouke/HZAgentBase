@@ -198,7 +198,7 @@ def create_agent(
         hooks: Hook registry for lifecycle events.
         memory_path: Path to memory directory for persistent knowledge.
         retriever: Knowledge base retriever for RAG. Any object implementing
-                   the Retriever protocol (e.g., from hz-knowledge-base).
+                   the Retriever protocol.
         knowledge_top_k: Number of knowledge results to retrieve per query.
         filesystem: Enable file operation audit and change tracking.
                     - True: enable with defaults (audit=True, track_changes=True)

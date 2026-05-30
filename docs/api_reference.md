@@ -540,3 +540,90 @@ class MaxRoundsCondition:
 | 方法 | 参数 | 返回值 | 说明 |
 |------|------|--------|------|
 | `should_stop` | `messages: list` | `bool` | True 表示应终止，Agent 停止循环 |
+
+---
+
+## CLI 工具
+
+HZAgentBase 提供命令行工具，用于开发调试和运维排查。
+
+### 命令总览
+
+```bash
+hz-agent help                    # 使用示例和快速指引
+hz-agent config show|check|path  # 配置管理
+hz-agent chat [--stream]         # 交互式对话
+hz-agent run [--stream]          # 单次执行
+hz-agent memory list|show|search|clear  # 记忆管理
+hz-agent audit show|stats|export|verify # 审计日志
+hz-agent version                 # 版本信息
+```
+
+### `hz-agent help`
+
+显示使用示例、常用命令、支持的模型列表和文档链接。
+
+### `hz-agent config`
+
+配置管理命令组。
+
+| 子命令 | 说明 |
+|--------|------|
+| `config show` | 显示所有加载的配置（API Key 脱敏显示） |
+| `config check` | 检查 .env 配置、Python 版本、依赖安装、API 连通性 |
+| `config path` | 显示 .env 文件的加载路径 |
+
+### `hz-agent chat`
+
+交互式对话。
+
+| 选项 | 说明 |
+|------|------|
+| `--model` | 指定模型（默认 deepseek-v4-flash） |
+| `--auto` | 全自动模式（不需确认） |
+| `--plan` | 只读模式（阻止写操作） |
+| `--memory` | 记忆目录路径 |
+| `--rules` | 共享规则目录路径 |
+| `--prompt` | 系统提示词 |
+| `--filesystem` | 开启文件审计 |
+| `--stream` | 流式输出（逐字显示） |
+| `--api-key` | API Key 覆盖（多租户测试） |
+
+### `hz-agent run`
+
+单次执行并输出结果。
+
+| 选项 | 说明 |
+|------|------|
+| `--model` | 指定模型 |
+| `--auto` | 全自动模式 |
+| `--thread` | 指定线程 ID |
+| `--stream` | 流式输出 |
+| `--output json` | JSON 格式输出（方便脚本处理） |
+| `--api-key` | API Key 覆盖 |
+
+### `hz-agent memory`
+
+记忆管理命令组。
+
+| 子命令 | 说明 |
+|--------|------|
+| `memory list [--path]` | 列出所有记忆（显示名称、类型、描述） |
+| `memory show <name> [--path]` | 查看指定记忆的完整内容 |
+| `memory search <query> [--path] [--limit]` | 搜索相关记忆 |
+| `memory clear [--path] [--confirm]` | 清空所有记忆（需确认） |
+
+### `hz-agent audit`
+
+审计日志管理命令组。
+
+| 子命令 | 说明 |
+|--------|------|
+| `audit show [--limit] [--tool] [--file]` | 查看审计日志（支持过滤） |
+| `audit stats` | 统计汇总（总操作数、成功率、工具排行、操作类型分布） |
+| `audit export [--output]` | 导出审计日志为 CSV 文件 |
+| `audit verify` | 校验审计日志的 HMAC 签名完整性 |
+
+### `hz-agent version`
+
+显示版本号、默认模型和 API 地址。
