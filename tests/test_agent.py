@@ -87,7 +87,7 @@ class TestCreateAgent:
 
         create_agent(model="deepseek-v4-flash")
 
-        mock_get_model.assert_called_once_with("deepseek-v4-flash")
+        mock_get_model.assert_called_once_with("deepseek-v4-flash", api_key=None, base_url=None)
 
     @patch("hz_agent_base.agent.create_deep_agent")
     @patch("hz_agent_base.agent._get_model")

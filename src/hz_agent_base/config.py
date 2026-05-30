@@ -2,12 +2,15 @@
 
 统一配置 MODEL_API_KEY / MODEL_BASE_URL，通过 DEFAULT_MODEL 的值自动匹配提供商。
 安全特性：API Key 空值警告、HTTP 协议警告。
+
+使用懒加载：import 时不会读取 .env，第一次访问配置变量时才加载。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -61,30 +64,37 @@ def load_config(env_path: str | Path | None = None) -> dict[str, str]:
     }
 
 
-# Auto-load on import
-_config = load_config()
+@lru_cache(maxsize=1)
+def _get_config() -> dict[str, str]:
+    """获取配置（懒加载，只执行一次）。"""
+    config = load_config()
 
-DEFAULT_MODEL = _config["DEFAULT_MODEL"]
-MODEL_API_KEY = _config["MODEL_API_KEY"]
-MODEL_BASE_URL = _config["MODEL_BASE_URL"]
+    # 安全警告
+    if not config["MODEL_API_KEY"]:
+        logger.warning("MODEL_API_KEY is not set. API calls will fail for cloud models (DeepSeek, OpenAI, Anthropic, Gemini).")
 
-PERMISSION_MODE = _config["PERMISSION_MODE"]
-MEMORY_PATH = _config["MEMORY_PATH"]
-AUDIT_LOG_PATH = _config["AUDIT_LOG_PATH"]
-KNOWLEDGE_TOP_K = int(_config["KNOWLEDGE_TOP_K"])
-LOG_LEVEL = _config["LOG_LEVEL"]
+    if config["MODEL_BASE_URL"] and config["MODEL_BASE_URL"].startswith("http://"):
+        logger.warning("MODEL_BASE_URL uses HTTP (not HTTPS). API keys will be transmitted in plaintext: %s", config["MODEL_BASE_URL"])
 
-# 容错配置
-MODEL_REQUEST_TIMEOUT = int(_config["MODEL_REQUEST_TIMEOUT"])
-MODEL_MAX_RETRIES = int(_config["MODEL_MAX_RETRIES"])
-RECURSION_LIMIT = int(_config["RECURSION_LIMIT"])
+    # 应用日志级别配置
+    logging.basicConfig(level=config["LOG_LEVEL"])
 
-# 安全警告
-if not MODEL_API_KEY:
-    logger.warning("MODEL_API_KEY is not set. API calls will fail for cloud models (DeepSeek, OpenAI, Anthropic, Gemini).")
+    return config
 
-if MODEL_BASE_URL and MODEL_BASE_URL.startswith("http://"):
-    logger.warning("MODEL_BASE_URL uses HTTP (not HTTPS). API keys will be transmitted in plaintext: %s", MODEL_BASE_URL)
 
-# 应用日志级别配置
-logging.basicConfig(level=LOG_LEVEL)
+# 配置属性名到类型的映射（int 类型需要转换）
+_INT_KEYS = {"KNOWLEDGE_TOP_K", "MODEL_REQUEST_TIMEOUT", "MODEL_MAX_RETRIES", "RECURSION_LIMIT"}
+
+# 所有有效的配置属性名
+_VALID_KEYS = set(load_config.__code__.co_consts) - {None}
+
+
+def __getattr__(name: str):
+    """模块级懒加载：第一次访问配置变量时才读取 .env。"""
+    _config = _get_config()
+    if name in _config:
+        value = _config[name]
+        if name in _INT_KEYS:
+            return int(value)
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

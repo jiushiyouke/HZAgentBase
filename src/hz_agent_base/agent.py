@@ -45,7 +45,12 @@ _PROVIDER_DEFAULT_URLS = {
 }
 
 
-def _get_model(model: str | Any | None = None) -> Any:
+def _get_model(
+    model: str | Any | None = None,
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> Any:
     """Resolve model string to a LangChain chat model instance.
 
     根据 DEFAULT_MODEL 的值自动选择提供商，统一使用 MODEL_API_KEY 认证：
@@ -59,6 +64,8 @@ def _get_model(model: str | Any | None = None) -> Any:
 
     Args:
         model: Model name string or a pre-configured model instance.
+        api_key: API key override. If None, uses MODEL_API_KEY from config.
+        base_url: Base URL override. If None, uses MODEL_BASE_URL from config.
 
     Returns:
         A LangChain chat model instance.
@@ -73,6 +80,11 @@ def _get_model(model: str | Any | None = None) -> Any:
     if not isinstance(model, str):
         return model
 
+    # 解析 api_key 和 base_url：参数 > 全局配置
+    resolved_key = api_key or MODEL_API_KEY
+    resolved_base = base_url or MODEL_BASE_URL
+    timeout = MODEL_REQUEST_TIMEOUT
+
     model_lower = model.lower()
 
     # Anthropic（claude-*）— 使用独立 SDK，不走 base_url
@@ -80,8 +92,8 @@ def _get_model(model: str | Any | None = None) -> Any:
         try:
             from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(
-                model=model, api_key=MODEL_API_KEY,
-                timeout=MODEL_REQUEST_TIMEOUT,
+                model=model, api_key=resolved_key,
+                timeout=timeout,
             )
         except ImportError:
             raise ImportError(
@@ -94,8 +106,8 @@ def _get_model(model: str | Any | None = None) -> Any:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
             return ChatGoogleGenerativeAI(
-                model=model, google_api_key=MODEL_API_KEY,
-                timeout=MODEL_REQUEST_TIMEOUT,
+                model=model, google_api_key=resolved_key,
+                timeout=timeout,
             )
         except ImportError:
             raise ImportError(
@@ -105,35 +117,33 @@ def _get_model(model: str | Any | None = None) -> Any:
 
     # DeepSeek — 使用 langchain-deepseek 官方包（支持 reasoning_content）
     if "deepseek" in model_lower:
+        effective_url = resolved_base or _PROVIDER_DEFAULT_URLS["deepseek"]
         try:
             from langchain_deepseek import ChatDeepSeek
-            base_url = MODEL_BASE_URL or _PROVIDER_DEFAULT_URLS["deepseek"]
             return ChatDeepSeek(
-                model=model, api_key=MODEL_API_KEY, base_url=base_url,
-                timeout=MODEL_REQUEST_TIMEOUT,
+                model=model, api_key=resolved_key, base_url=effective_url,
+                timeout=timeout,
             )
         except ImportError:
             # 降级到 ChatOpenAI（不支持 reasoning_content）
-            base_url = MODEL_BASE_URL or _PROVIDER_DEFAULT_URLS["deepseek"]
             return ChatOpenAI(
-                model=model, api_key=MODEL_API_KEY, base_url=base_url,
-                request_timeout=MODEL_REQUEST_TIMEOUT,
+                model=model, api_key=resolved_key, base_url=effective_url,
+                request_timeout=timeout,
             )
 
     # 以下均为 OpenAI 兼容 API（OpenAI、Ollama 等）
     # 确定 base_url：用户显式设置 > 提供商默认 > 不传（让 SDK 自己决定）
-    base_url = MODEL_BASE_URL
-    if not base_url:
+    if not resolved_base:
         if any(model_lower.startswith(p) for p in ("gpt-", "o1-", "o3-")):
-            base_url = _PROVIDER_DEFAULT_URLS["openai"]
+            resolved_base = _PROVIDER_DEFAULT_URLS["openai"]
 
     kwargs: dict[str, Any] = {
         "model": model,
-        "api_key": MODEL_API_KEY,
-        "request_timeout": MODEL_REQUEST_TIMEOUT,
+        "api_key": resolved_key,
+        "request_timeout": timeout,
     }
-    if base_url:
-        kwargs["base_url"] = base_url
+    if resolved_base:
+        kwargs["base_url"] = resolved_base
 
     return ChatOpenAI(**kwargs)
 
@@ -158,6 +168,8 @@ def create_agent(
     cancellation_checker: Any | None = None,
     stop_condition: Any | None = None,
     max_retries: int = MODEL_MAX_RETRIES,
+    api_key: str | None = None,
+    base_url: str | None = None,
     **kwargs,
 ) -> CompiledStateGraph:
     """Create an agent with HZAgentBase harness.
@@ -186,6 +198,8 @@ def create_agent(
                  Creates a Coordinator with sub-agents.
         middleware: Additional custom middleware.
         backend: Filesystem/sandbox backend.
+        api_key: API key override for multi-tenant. If None, uses MODEL_API_KEY from .env.
+        base_url: Base URL override for multi-tenant. If None, uses MODEL_BASE_URL from .env.
         **kwargs: Additional arguments passed to create_deep_agent().
 
     Returns:
@@ -196,7 +210,7 @@ def create_agent(
     resolved_prompt = load_prompt(system_prompt, shared_rules=rules)
 
     # 提前解析 model，供 HookMiddleware 使用（PromptHook / AgentHook 需要 LLM）
-    resolved_model = _get_model(model)
+    resolved_model = _get_model(model, api_key=api_key, base_url=base_url)
 
     harness_middleware: list[AgentMiddleware] = []
 
@@ -292,6 +306,11 @@ def run_agent(
     Returns:
         The agent's response state including messages.
     """
+    if agent is None:
+        raise ValueError("agent must not be None. Use create_agent() to create one.")
+    if not message or not isinstance(message, str):
+        raise ValueError("message must be a non-empty string.")
+
     if thread_id is None:
         thread_id = str(uuid.uuid4())
 

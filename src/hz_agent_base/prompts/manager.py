@@ -36,15 +36,18 @@ class PromptManager:
         prompt_dir: str | Path,
         *,
         shared_rules: list[str | Path] | None = None,
+        _base_file_override: Path | None = None,
     ):
         """初始化 PromptManager。
 
         Args:
             prompt_dir: 提示词目录，包含 base.md 和可选的 rules/ 子目录。
             shared_rules: 共享规则目录列表，追加到 agent 自身规则之后。
+            _base_file_override: 内部参数，from_file() 用于指定单个文件作为 base。
         """
         self.prompt_dir = Path(prompt_dir)
         self.shared_rules = [Path(p) for p in (shared_rules or [])]
+        self._base_file_override = _base_file_override
 
     @classmethod
     def from_file(cls, file_path: str | Path, **kwargs) -> PromptManager:
@@ -55,12 +58,7 @@ class PromptManager:
         """
         file_path = Path(file_path)
         if file_path.is_file():
-            # 创建临时目录结构的 PromptManager，但用文件本身作为 base
-            pm = cls.__new__(cls)
-            pm.prompt_dir = file_path.parent
-            pm._base_file_override = file_path
-            pm.shared_rules = [Path(p) for p in (kwargs.get("shared_rules") or [])]
-            return pm
+            return cls(file_path.parent, _base_file_override=file_path, **kwargs)
         return cls(file_path, **kwargs)
 
     def build(self) -> str:
@@ -92,9 +90,8 @@ class PromptManager:
     def _load_base(self) -> str:
         """加载 base.md 基础提示词。"""
         # 如果有文件覆盖（from_file 模式）
-        override = getattr(self, "_base_file_override", None)
-        if override and override.exists():
-            return override.read_text(encoding="utf-8").strip()
+        if self._base_file_override and self._base_file_override.exists():
+            return self._base_file_override.read_text(encoding="utf-8").strip()
 
         # 正常模式：查找 base.md
         base_file = self.prompt_dir / "base.md"
