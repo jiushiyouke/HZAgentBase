@@ -610,8 +610,12 @@ HZAgentBase/
 │   ├── with_knowledge.py      # 知识库 RAG
 │   ├── with_prompts.py        # 提示词管理
 │   ├── with_filesystem.py     # 文件审计
+│   ├── with_streaming.py      # 流式输出
+│   ├── async_agent.py         # 异步调用
+│   ├── multi_tenant.py        # 多租户支持
+│   ├── middleware_priority.py # 中间件优先级
 │   ├── custom_middleware.py   # 自定义中间件
-│   └── server_integration.py  # FastAPI 服务器集成
+│   └── server_integration.py  # FastAPI 服务器集成（含 SSE 流式）
 └── docs/
     ├── technical_roadmap.md   # 技术路线图
     ├── api_reference.md       # API 参考文档

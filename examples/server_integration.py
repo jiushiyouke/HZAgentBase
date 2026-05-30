@@ -11,7 +11,7 @@ HZAgentBase 作为组件库使用，不关心 HTTP 框架和用户管理。
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from hz_agent_base import create_agent, run_agent, WorkerConfig, PermissionSettings
+from hz_agent_base import create_agent, run_agent, arun_agent_stream, WorkerConfig, PermissionSettings
 
 # ============================================================
 # 1. 启动时创建 Agent（全局单例，线程安全）
@@ -63,3 +63,36 @@ def chat(req: ChatRequest):
             return ChatResponse(reply=content)
 
     return ChatResponse(reply="No response")
+
+
+# ============================================================
+# 3. 流式输出端点（SSE）
+# ============================================================
+
+from fastapi.responses import StreamingResponse
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """流式输出端点 — 逐 token 返回，适用于前端实时显示。
+
+    使用 Server-Sent Events (SSE) 协议：
+    - 每个 token 以 `data: {token}` 格式发送
+    - 完成时发送 `data: [DONE]`
+
+    前端接收示例（JavaScript）：
+        const es = new EventSource('/chat/stream', {
+            method: 'POST',
+            body: JSON.stringify({user_id: 'user-1', message: '你好'})
+        });
+        es.onmessage = (e) => {
+            if (e.data === '[DONE]') es.close();
+            else appendToUI(e.data);
+        };
+    """
+    async def generate():
+        async for token in arun_agent_stream(agent, req.message, thread_id=req.user_id):
+            yield f"data: {token}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

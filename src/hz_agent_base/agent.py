@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, AsyncGenerator, Callable, Generator, Sequence
+from typing import Any, AsyncGenerator, Generator, Sequence
 
 from deepagents import create_deep_agent
 from deepagents.graph import CompiledStateGraph
@@ -175,8 +175,8 @@ def create_agent(
     middleware: Sequence[AgentMiddleware | tuple[AgentMiddleware, int]] | None = None,
     backend: BackendProtocol | None = None,
     skills: list[str] | None = None,
-    cancellation_checker: Any | None = None,
-    stop_condition: Any | None = None,
+    cancellation_checker: CancellationChecker | None = None,
+    stop_condition: StopCondition | None = None,
     max_retries: int = MODEL_MAX_RETRIES,
     api_key: str | None = None,
     base_url: str | None = None,
