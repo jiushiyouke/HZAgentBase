@@ -55,6 +55,10 @@ def load_config(env_path: str | Path | None = None) -> dict[str, str]:
         "PERMISSION_MODE": os.environ.get("PERMISSION_MODE", "default"),
         # 记忆
         "MEMORY_PATH": os.environ.get("MEMORY_PATH", ".memory"),
+        "MEMORY_CACHE_SIZE": os.environ.get("MEMORY_CACHE_SIZE", "1000"),
+        "MEMORY_CACHE_TTL": os.environ.get("MEMORY_CACHE_TTL", "60"),
+        # 文件锁分片数
+        "FILE_LOCK_SHARDS": os.environ.get("FILE_LOCK_SHARDS", "16"),
         # 文件审计
         "AUDIT_LOG_PATH": os.environ.get("AUDIT_LOG_PATH", ".audit/audit.jsonl"),
         # 知识库
@@ -83,7 +87,10 @@ def _get_config() -> dict[str, str]:
 
 
 # 配置属性名到类型的映射（int 类型需要转换）
-_INT_KEYS = {"KNOWLEDGE_TOP_K", "MODEL_REQUEST_TIMEOUT", "MODEL_MAX_RETRIES", "RECURSION_LIMIT"}
+_INT_KEYS = {
+    "KNOWLEDGE_TOP_K", "MODEL_REQUEST_TIMEOUT", "MODEL_MAX_RETRIES", "RECURSION_LIMIT",
+    "MEMORY_CACHE_SIZE", "MEMORY_CACHE_TTL", "FILE_LOCK_SHARDS",
+}
 
 # 所有有效的配置属性名
 _VALID_KEYS = set(load_config.__code__.co_consts) - {None}

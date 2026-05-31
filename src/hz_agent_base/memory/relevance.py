@@ -24,13 +24,25 @@ _global_cache: MemoryCache | None = None
 _cache_lock = __import__("threading").Lock()
 
 
-def get_memory_cache(max_size: int = 1000, ttl_seconds: int = 60) -> MemoryCache:
-    """获取全局记忆缓存（单例）。"""
+def get_memory_cache(max_size: int | None = None, ttl_seconds: int | None = None) -> MemoryCache:
+    """获取全局记忆缓存（单例）。
+
+    参数优先级：参数值 > 环境变量 > 默认值。
+
+    环境变量：
+        MEMORY_CACHE_SIZE: 缓存条目数（默认 1000）
+        MEMORY_CACHE_TTL: 缓存过期秒数（默认 60）
+    """
     global _global_cache
     if _global_cache is None:
         with _cache_lock:
             if _global_cache is None:
-                _global_cache = MemoryCache(max_size=max_size, ttl_seconds=ttl_seconds)
+                # 从配置读取默认值
+                from ..config import MEMORY_CACHE_SIZE, MEMORY_CACHE_TTL
+                _global_cache = MemoryCache(
+                    max_size=max_size or MEMORY_CACHE_SIZE,
+                    ttl_seconds=ttl_seconds or MEMORY_CACHE_TTL,
+                )
     return _global_cache
 
 

@@ -33,6 +33,7 @@ class MemoryManager:
         memory_type: str = "general",
         description: str = "",
         tags: list[str] | None = None,
+        user_id: str | None = None,
     ) -> Path:
         """Add a new memory entry.
 
@@ -42,6 +43,7 @@ class MemoryManager:
             memory_type: Type of memory (user, feedback, project, reference).
             description: One-line description for the index.
             tags: Optional tags for categorization.
+            user_id: Optional user ID for sharded locking.
 
         Returns:
             Path to the created memory file.
@@ -50,9 +52,9 @@ class MemoryManager:
         slug = self._title_to_slug(title)
         filepath = self.path / f"{slug}.md"
 
-        # 使用文件锁防止并发写入竞态
-        lock_path = self.path / ".memory.lock"
-        with FileLock(lock_path):
+        # 使用分片锁：按 slug 分锁，不同记忆文件可以并发写入
+        lock = FileLock.sharded(self.path, key=slug, user_id=user_id)
+        with lock:
             # Check if memory already exists (dedup by content signature)
             signature = self._content_signature(content)
             if filepath.exists():

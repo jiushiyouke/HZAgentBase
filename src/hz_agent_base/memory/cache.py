@@ -82,11 +82,50 @@ class FileLock:
             ...
 
     Windows 使用 msvcrt.locking，Linux 使用 fcntl.flock。
+
+    分片锁工厂方法：
+        lock = FileLock.sharded(memory_dir, user_id="user123")
+        # 会创建 memory_dir/.locks/shard_XX.lock，不同用户可能使用不同锁
     """
+
+    # 默认分片数，可根据并发量调整
+    DEFAULT_SHARD_COUNT = 16
 
     def __init__(self, lock_path: Path):
         self._lock_path = lock_path
         self._fd = None
+
+    @classmethod
+    def sharded(
+        cls,
+        base_dir: Path,
+        *,
+        key: str | None = None,
+        user_id: str | None = None,
+        shard_count: int | None = None,
+    ) -> "FileLock":
+        """创建分片锁，避免所有操作共用一把锁。
+
+        Args:
+            base_dir: 锁文件存放目录（通常是记忆目录）。
+            key: 分片键（如记忆文件名），与 user_id 二选一。
+            user_id: 用户 ID，与 key 二选一。
+            shard_count: 分片数量，默认 16。
+
+        Returns:
+            FileLock 实例，指向对应的分片锁文件。
+        """
+        import hashlib
+
+        shards = shard_count or cls.DEFAULT_SHARD_COUNT
+        # 用 key 或 user_id 计算分片
+        shard_key = key or user_id or "default"
+        hash_val = int(hashlib.md5(shard_key.encode()).hexdigest(), 16)
+        shard_idx = hash_val % shards
+
+        lock_dir = base_dir / ".locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        return cls(lock_dir / f"shard_{shard_idx:02d}.lock")
 
     def __enter__(self):
         import time as _time
