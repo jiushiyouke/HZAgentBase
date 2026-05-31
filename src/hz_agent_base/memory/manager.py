@@ -1,11 +1,12 @@
 """Memory manager - handles persistent memory storage.
 
-高并发改造：写入时使用 FileLock 防止竞态，写入后自动使缓存失效。
+高并发改造：写入时使用分片锁防止竞态，索引使用专用锁，写入后自动使缓存失效。
 """
 
 from __future__ import annotations
 
 import hashlib
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ class MemoryManager:
     def __init__(self, memory_path: str):
         self.path = Path(memory_path)
         self.path.mkdir(parents=True, exist_ok=True)
+        # 索引文件专用锁，防止并发追加导致重复条目
+        self._index_lock = threading.Lock()
 
     def add_memory(
         self,
@@ -208,13 +211,15 @@ metadata:
         index_path = self.path / "MEMORY.md"
         entry = f"- [{slug}]({slug}.md) — {description}\n"
 
-        if index_path.exists():
-            content = index_path.read_text(encoding="utf-8")
-            if entry not in content:
-                with open(index_path, "a", encoding="utf-8") as f:
-                    f.write(entry)
-        else:
-            index_path.write_text(
-                f"# Memory Index\n\n{entry}",
-                encoding="utf-8",
-            )
+        # 使用索引锁防止并发追加导致重复条目
+        with self._index_lock:
+            if index_path.exists():
+                content = index_path.read_text(encoding="utf-8")
+                if entry not in content:
+                    with open(index_path, "a", encoding="utf-8") as f:
+                        f.write(entry)
+            else:
+                index_path.write_text(
+                    f"# Memory Index\n\n{entry}",
+                    encoding="utf-8",
+                )

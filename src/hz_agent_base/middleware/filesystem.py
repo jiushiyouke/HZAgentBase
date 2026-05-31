@@ -98,6 +98,8 @@ class AuditLog:
         self._write_queue: queue.Queue[str | None] = queue.Queue(maxsize=10000)
         self._writer_thread: threading.Thread | None = None
         self._shutdown = False
+        # 刷盘信号哨兵（与退出哨兵 None 区分）
+        self._FLUSH_SENTINEL = "__FLUSH__"
         if log_path:
             self._start_writer()
 
@@ -113,9 +115,18 @@ class AuditLog:
                     # 阻塞等待，超时后检查是否需要刷新
                     try:
                         line = self._write_queue.get(timeout=self._flush_interval)
-                        if line is None:  # 哨兵值，退出
+                        if line is None:  # 退出哨兵
+                            self._write_queue.task_done()
                             break
+                        if line == self._FLUSH_SENTINEL:  # 刷盘信号
+                            if buffer:
+                                self._flush_buffer(buffer)
+                                buffer.clear()
+                                last_flush = time.time()
+                            self._write_queue.task_done()
+                            continue
                         buffer.append(line)
+                        self._write_queue.task_done()  # 通知 put() 方消费完毕
                     except queue.Empty:
                         pass
 
@@ -178,10 +189,13 @@ class AuditLog:
                 pass
 
     def flush(self) -> None:
-        """手动刷新（等待队列消费完毕）。"""
+        """手动刷新（等待队列消费完毕 + 强制刷盘）。"""
         if self._writer_thread and self._writer_thread.is_alive():
-            # 等待队列清空
+            # 等待队列消费完毕
             self._write_queue.join()
+            # 发送刷盘信号，让写入线程清空 buffer
+            self._write_queue.put_nowait(self._FLUSH_SENTINEL)
+            self._write_queue.join()  # 等待刷盘完成
 
     def close(self) -> None:
         """关闭审计日志（停止写入线程）。"""
