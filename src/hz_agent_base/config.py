@@ -55,10 +55,10 @@ def load_config(env_path: str | Path | None = None) -> dict[str, str]:
         "PERMISSION_MODE": os.environ.get("PERMISSION_MODE", "default"),
         # 记忆
         "MEMORY_PATH": os.environ.get("MEMORY_PATH", ".memory"),
-        "MEMORY_CACHE_SIZE": os.environ.get("MEMORY_CACHE_SIZE", "1000"),
-        "MEMORY_CACHE_TTL": os.environ.get("MEMORY_CACHE_TTL", "60"),
+        "MEMORY_CACHE_SIZE": os.environ.get("MEMORY_CACHE_SIZE", "100"),
+        "MEMORY_CACHE_TTL": os.environ.get("MEMORY_CACHE_TTL", "300"),
         # 文件锁分片数
-        "FILE_LOCK_SHARDS": os.environ.get("FILE_LOCK_SHARDS", "16"),
+        "FILE_LOCK_SHARDS": os.environ.get("FILE_LOCK_SHARDS", "64"),
         # 文件审计
         "AUDIT_LOG_PATH": os.environ.get("AUDIT_LOG_PATH", ".audit/audit.jsonl"),
         # 知识库
