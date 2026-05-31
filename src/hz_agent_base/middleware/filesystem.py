@@ -110,7 +110,7 @@ class AuditLog:
             buffer: list[str] = []
             last_flush = time.time()
 
-            while not self._shutdown:
+            while True:
                 try:
                     # 阻塞等待，超时后检查是否需要刷新
                     try:
@@ -128,7 +128,9 @@ class AuditLog:
                         buffer.append(line)
                         self._write_queue.task_done()  # 通知 put() 方消费完毕
                     except queue.Empty:
-                        pass
+                        # 超时后，如果已关闭且队列为空，退出
+                        if self._shutdown and self._write_queue.empty():
+                            break
 
                     # 批量写入条件：缓冲区满 或 超时
                     now = time.time()
@@ -183,9 +185,10 @@ class AuditLog:
             record_json = json.dumps(record, ensure_ascii=False)
             line = self._sign_record(record_json)
             try:
-                self._write_queue.put_nowait(line)
+                # 等待队列有空间，最多 1 秒
+                self._write_queue.put(line, timeout=1.0)
             except queue.Full:
-                # 队列满时丢弃（避免阻塞主线程）
+                # 超时后丢弃（避免无限阻塞）
                 pass
 
     def flush(self) -> None:

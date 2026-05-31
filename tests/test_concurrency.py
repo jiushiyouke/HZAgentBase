@@ -218,8 +218,8 @@ class TestAuditLogConcurrency:
             for f in as_completed(futures):
                 f.result()
 
-        # 手动 flush 剩余缓冲区
-        log.flush()
+        # 关闭日志，确保所有数据写入磁盘
+        log.close()
 
         assert len(errors) == 0, f"并发错误: {errors}"
 
