@@ -436,7 +436,6 @@ agent = create_agent(
 | `DEFAULT` | 30 | 用户自定义中间件默认位置 |
 | `GUARDRAILS` | 32 | 内容护栏中间件位置 |
 | `SANITIZER` | 33 | 输出清洗中间件位置 |
-| `REFLECTION` | 34 | 反思评分中间件位置 |
 | `AUDIT` | 35 | 文件审计中间件位置 |
 | `RESILIENT` | 40 | 容错中间件位置 |
 | `COORDINATOR` | 50 | 多 Agent 编排中间件位置 |

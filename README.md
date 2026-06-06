@@ -145,40 +145,45 @@ agent_c = create_agent(model=ChatOpenAI(model="gpt-4", api_key="sk-ccc..."))
 
 ## 中间件管道
 
-`create_agent()` 按以下顺序组装中间件管道，每个中间件可拦截和修改模型请求：
+`create_agent()` 使用优先级排序机制组装中间件管道。每个中间件可拦截和修改模型请求，数字越小越先执行：
 
 ```
- 1. PermissionMiddleware      ← 权限检查（默认开启）
- 2. HookMiddleware            ← 生命周期事件（需传入 hooks 参数）
- 3. ConversationHistoryMiddleware ← 对话历史管理（需传入 conversation_history=True）
- 4. MemoryMiddleware          ← 记忆注入/提取（需传入 memory_path）
- 5. KnowledgeMiddleware       ← 知识库 RAG 检索（需传入 retriever）
- 6. HumanApprovalMiddleware   ← 人工审批（需传入 human_approval_rules）
- 7. EvolutionMemoryMiddleware ← 进化记忆 + 自我反思（需传入 evolution_memory=True）
- 8. FileAuditMiddleware       ← 文件审计 + 变更追踪（需传入 filesystem=True）
- 9. SanitizerMiddleware       ← 输出清洗 PII/敏感词（需传入 sanitizer=True）
-10. GuardrailsMiddleware      ← 内容护栏（需传入 guardrails=True）
-11. [用户自定义 Middleware]   ← 通过 middleware 参数传入
-12. ResilientMiddleware       ← 容错：重试、取消、终止条件（默认开启）
-13. CoordinatorMiddleware     ← 多 Agent 编排（需传入 workers）
+```
+优先级    中间件                    说明
+─────────────────────────────────────────────────────────────────
+  0       BEFORE_ALL               ← 自定义中间件插入点（最前面）
+  5       PermissionMiddleware     ← 权限检查（默认开启）
+  8       HumanApprovalMiddleware  ← 人工审批
+ 10       HookMiddleware           ← 生命周期事件
+ 20       MemoryMiddleware         ← 记忆注入/提取
+ 22       EvolutionMemoryMiddleware← 进化记忆 + 自我反思
+ 25       KnowledgeMiddleware      ← 知识库 RAG 检索
+ 28       ConversationHistory      ← 对话历史管理
+ 30       DEFAULT                  ← 用户自定义中间件的默认位置
+ 32       GuardrailsMiddleware     ← 内容护栏
+ 33       SanitizerMiddleware      ← 输出清洗
+ 35       FileAuditMiddleware      ← 文件审计 + 变更追踪
+ 40       ResilientMiddleware      ← 容错：重试、取消、终止条件（默认开启）
+ 50       CoordinatorMiddleware    ← 多 Agent 编排
+100       AFTER_ALL                ← 自定义中间件插入点（最后面）
 ```
 
-| 中间件 | 默认状态 | 启用方式 |
-|--------|---------|---------|
-| Permission | 开启 | 无需额外参数，可通过 `permissions` 自定义 |
-| Hook | 关闭 | `hooks=HookRegistry(...)` |
-| ConversationHistory | 关闭 | `conversation_history=True` 或 `conversation_history={...}` |
-| Memory | 关闭 | `memory_path=".memory/"` |
-| Knowledge | 关闭 | `retriever=your_retriever` |
-| HumanApproval | 关闭 | `human_approval_rules=[ApprovalRule(...)]` |
-| EvolutionMemory | 关闭 | `evolution_memory=True` 或 `evolution_memory={...}` |
-| Filesystem | 关闭 | `filesystem=True` 或 `filesystem={...}` |
-| Sanitizer | 关闭 | `sanitizer=True` 或 `sanitizer={...}` |
-| Guardrails | 关闭 | `guardrails={...}` |
-| Resilient | 开启 | `max_retries=2`，可选 `cancellation_checker`、`stop_condition` |
-| Coordinator | 关闭 | `workers=[WorkerConfig(...)]` |
+| 中间件 | 优先级 | 默认状态 | 启用方式 |
+|--------|--------|---------|---------|
+| Permission | 5 | 开启 | 无需额外参数，可通过 `permissions` 自定义 |
+| Hook | 10 | 关闭 | `hooks=HookRegistry(...)` |
+| ConversationHistory | 28 | 关闭 | `conversation_history=True` 或 `conversation_history={...}` |
+| Memory | 20 | 关闭 | `memory_path=".memory/"` |
+| Knowledge | 25 | 关闭 | `retriever=your_retriever` |
+| HumanApproval | 8 | 关闭 | `human_approval_rules=[ApprovalRule(...)]` |
+| EvolutionMemory | 22 | 关闭 | `evolution_memory=True` 或 `evolution_memory={...}` |
+| Filesystem | 35 | 关闭 | `filesystem=True` 或 `filesystem={...}` |
+| Sanitizer | 33 | 关闭 | `sanitizer=True` 或 `sanitizer={...}` |
+| Guardrails | 32 | 关闭 | `guardrails={...}` |
+| Resilient | 40 | 开启 | `max_retries=2`，可选 `cancellation_checker`、`stop_condition` |
+| Coordinator | 50 | 关闭 | `workers=[WorkerConfig(...)]` |
 
-**自定义中间件优先级：**
+**自定义中间件可插入任意位置：**
 
 ```python
 from hz_agent_base import create_agent
@@ -186,14 +191,16 @@ from hz_agent_base.utils.constants import BEFORE_ALL, AFTER_ALL
 
 agent = create_agent(
     middleware=[
-        (RequestLogger(), BEFORE_ALL),     # 最前面执行
-        (BusinessContext()),                # 默认位置（DEFAULT=30）
-        (OutputSanitizer(), AFTER_ALL),    # 最后面执行
+        (RequestLogger(), BEFORE_ALL),     # 优先级 0，最前面执行
+        (BusinessContext()),                # 优先级 30，默认位置
+        (OutputSanitizer(), AFTER_ALL),    # 优先级 100，最后面执行
     ],
 )
 ```
 
-可用的优先级常量：`BEFORE_ALL=0`、`PERMISSION=5`、`HOOKS=10`、`HUMAN_APPROVAL=8`、`AGENT_MEMORY=22`、`CONVERSATION_HISTORY=28`、`MEMORY=20`、`KNOWLEDGE=25`、`GUARDRAILS=32`、`SANITIZER=33`、`REFLECTION=34`、`DEFAULT=30`、`AUDIT=35`、`RESILIENT=40`、`COORDINATOR=50`、`AFTER_ALL=100`。
+可用的优先级常量：`BEFORE_ALL=0`、`PERMISSION=5`、`HUMAN_APPROVAL=8`、`HOOKS=10`、`MEMORY=20`、`AGENT_MEMORY=22`、`KNOWLEDGE=25`、`CONVERSATION_HISTORY=28`、`DEFAULT=30`、`GUARDRAILS=32`、`SANITIZER=33`、`AUDIT=35`、`RESILIENT=40`、`COORDINATOR=50`、`AFTER_ALL=100`。
+
+直接传入的中间件默认优先级为 `DEFAULT=30`（在 Filesystem 之后、Resilient 之前）。通过 `(middleware, priority)` 元组可指定任意优先级。
 
 ## 权限系统
 

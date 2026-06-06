@@ -8,13 +8,12 @@ HZAgentBase 的中间件管道按以下顺序执行（数字越小越先执行�
     → HUMAN_APPROVAL(8)      # Human-in-the-loop 人工审批
     → HOOKS(10)              # 生命周期事件
     → MEMORY(20)             # 记忆注入/提取
-    → AGENT_MEMORY(22)       # 跨会话 Agent 记忆
+    → AGENT_MEMORY(22)       # 进化记忆 + 自我反思（合并）
     → KNOWLEDGE(25)          # 知识库 RAG 检索
     → CONVERSATION_HISTORY(28) # 对话历史管理
     → DEFAULT(30)            # 用户自定义（默认位置）
     → GUARDRAILS(32)         # Guardrails 内容审核
     → SANITIZER(33)          # 输出清洗 PII 过滤
-    → REFLECTION(34)         # Agent 自我反思
     → AUDIT(35)              # 文件审计
     → RESILIENT(40)          # 重试/取消/终止
     → COORDINATOR(50)        # 多 Agent 编排
@@ -39,7 +38,7 @@ from ..guardrails import ContentModerator, FactChecker, OutputValidator
 from ..utils.constants import (
     BEFORE_ALL, PERMISSION, HUMAN_APPROVAL, HOOKS,
     MEMORY, AGENT_MEMORY, KNOWLEDGE, CONVERSATION_HISTORY,
-    DEFAULT, GUARDRAILS, SANITIZER, REFLECTION,
+    DEFAULT, GUARDRAILS, SANITIZER,
     AUDIT, RESILIENT, COORDINATOR, AFTER_ALL,
 )
 
@@ -66,6 +65,6 @@ __all__ = [
     # 优先级常量
     "BEFORE_ALL", "PERMISSION", "HUMAN_APPROVAL", "HOOKS",
     "MEMORY", "AGENT_MEMORY", "KNOWLEDGE", "CONVERSATION_HISTORY",
-    "DEFAULT", "GUARDRAILS", "SANITIZER", "REFLECTION",
+    "DEFAULT", "GUARDRAILS", "SANITIZER",
     "AUDIT", "RESILIENT", "COORDINATOR", "AFTER_ALL",
 ]

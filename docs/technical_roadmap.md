@@ -5,34 +5,52 @@
 HZAgentBase 是一个可复用的 Agent Harness 基础设施库，为上层业务项目提供开箱即用的 Agent 创建能力。
 
 **核心目标**：
+
 - 其他项目通过 `pip install hz-agent-base` 即可创建 Agent
 - 提供权限控制、Hook 系统、记忆系统、多 Agent 编排等基础能力
+- 提供对话历史管理、输出清洗、内容护栏、人工审批、进化记忆等高级功能
 - 支持多模型（Claude、GPT、Gemini、私有模型）
 
 ## 二、技术选型
 
-| 层级 | 技术方案 | 来源 |
-|------|----------|------|
-| Agent 编排 | LangGraph (StateGraph) | Deep Agents |
-| 中间件管道 | AgentMiddleware 模式 | Deep Agents |
-| 后端抽象 | BackendProtocol / SandboxBackendProtocol | Deep Agents |
-| 权限系统 | PermissionChecker + 三模式 | OpenHarness |
-| Hook 系统 | HookExecutor + 4种Hook类型 | OpenHarness |
-| 记忆系统 | 文件级 Markdown + YAML frontmatter | OpenHarness |
-| 多 Agent | Coordinator + Worker 模式 | OpenHarness |
-| CLI | Click + Rich | 新建 |
+| 层级       | 技术方案                                                | 来源          |
+| -------- | --------------------------------------------------- | ----------- |
+| Agent 编排 | LangGraph (StateGraph)                              | Deep Agents |
+| 中间件管道    | AgentMiddleware 模式                                  | Deep Agents |
+| 后端抽象     | BackendProtocol / SandboxBackendProtocol            | Deep Agents |
+| 权限系统     | PermissionChecker + 三模式                             | OpenHarness |
+| Hook 系统  | HookExecutor + 4种Hook类型                             | OpenHarness |
+| 记忆系统     | 文件级 Markdown + YAML frontmatter                     | OpenHarness |
+| 多 Agent  | Coordinator + Worker 模式                             | OpenHarness |
+| 对话历史管理   | Token 估算 + 三种策略（截断/滑动窗口/摘要）                         | 自研          |
+| 输出清洗     | PII 脱敏 + 敏感词 + Prompt 泄露检测                          | 自研          |
+| 内容护栏     | ContentModerator / FactChecker / OutputValidator 协议 | 自研          |
+| 人工审批     | glob 模式匹配 + 审批回调协议                                  | 自研          |
+| 进化记忆     | 任务分类 + 经验存储 + 反思评分 + 自动重试                           | 自研          |
+| 文件审计     | 操作日志 + 变更追踪 + HMAC 签名                               | 自研          |
+| CLI      | Click + Rich                                        | 新建          |
 
 **选择 Deep Agents 为骨架的原因**：
+
 1. LangGraph 提供图状编排，比线性循环更灵活
 2. Middleware 管道扩展性好，新功能不需要改核心
 3. Backend 抽象层设计成熟，支持本地/沙箱/远程
 4. 工程化程度高（CI/CD、评测体系、威胁模型）
 
 **从 OpenHarness 移植的原因**：
+
 1. 权限系统更完整（敏感路径、命令过滤、三模式）
 2. Hook 系统更丰富（4种类型 vs 基础支持）
 3. 记忆系统更成熟（搜索、相关性、自动提取）
 4. Coordinator 多 Agent 编排更完善
+
+**自研功能模块**：
+
+1. 对话历史管理 — 解决长对话 token 超限问题
+2. 输出清洗 — 符合数据安全合规要求（PII 脱敏）
+3. 内容护栏 — 企业级内容审核和质量保证
+4. 人工审批 — 高风险操作的安全控制
+5. 进化记忆 — Agent 持续学习和自我改进能力
 
 ## 三、架构设计
 
@@ -407,6 +425,7 @@ agent = create_agent(
 ## 六、分阶段执行计划
 
 ### 阶段一：项目骨架 ✅
+
 - [x] 创建项目结构
 - [x] 配置 Python 3.11 虚拟环境
 - [x] pyproject.toml 配置
@@ -417,90 +436,101 @@ agent = create_agent(
 - [x] 多用户线程隔离验证
 
 ### 阶段二：权限系统 ✅
+
 - [x] 从 OpenHarness 移植 PermissionChecker
 - [x] 包装为 Deep Agents Middleware
 - [x] 修复 Middleware API（ModelRequest 数据类适配）
 - [x] 单元测试（15 个用例）
 
 ### 阶段三：Hook 系统 ✅
+
 - [x] 从 OpenHarness 移植 Hook 事件和类型
 - [x] 移植 HookRegistry 和 HookExecutor
 - [x] 包装为 Middleware
 - [x] 单元测试（13 个用例）
 
 ### 阶段四：记忆系统 ✅
+
 - [x] 从 OpenHarness 移植记忆管理器
 - [x] 移植搜索和相关性算法
 - [x] 包装为 Middleware
 - [x] 单元测试（15 个用例）
 
 ### 阶段五：知识库协议 + 文件审计 ✅
+
 - [x] 定义 Retriever 协议（参考 LlamaIndex BaseRetriever）
 - [x] 实现 KnowledgeMiddleware
-- [x] 集成到 create_agent()（retriever 参数）
+- [x] 集成到 create\_agent()（retriever 参数）
 - [x] 实现 FileAuditMiddleware（审计 + 变更追踪）
-- [x] 集成到 create_agent()（filesystem 参数，可开关）
+- [x] 集成到 create\_agent()（filesystem 参数，可开关）
 - [x] 审计日志支持 JSONL 持久化
 - [x] 单元测试（知识库 12 个 + 文件审计 20 个）
 - [ ] **独立知识库实现**（ChromaDB + embedding）
 
 ### 阶段六：多 Agent 编排 ✅
+
 - [x] 从 OpenHarness 移植 Coordinator 模式
 - [x] 实现 TeamRegistry（团队注册和成员管理）
 - [x] 修复 CoordinatorMiddleware（ModelRequest API 适配）
-- [x] 集成到 create_agent()（workers 参数，自动传递 subagents）
+- [x] 集成到 create\_agent()（workers 参数，自动传递 subagents）
 - [x] 导出 WorkerConfig
 - [x] 单元测试（18 个用例）
 
 ### 阶段七：提示词管理系统 ✅
-- [x] PromptManager — 从目录加载 base.md + rules/*.md
-- [x] 共享规则支持（shared_rules 参数，所有 agent 共享）
-- [x] load_prompt 便捷函数（支持字符串/文件路径/目录路径）
-- [x] create_agent() 的 system_prompt 支持文件路径
-- [x] create_agent() 新增 rules 参数（共享规则目录）
-- [x] WorkerConfig 新增 prompt_dir 字段（每个 worker 独立提示词目录）
+
+- [x] PromptManager — 从目录加载 base.md + rules/\*.md
+- [x] 共享规则支持（shared\_rules 参数，所有 agent 共享）
+- [x] load\_prompt 便捷函数（支持字符串/文件路径/目录路径）
+- [x] create\_agent() 的 system\_prompt 支持文件路径
+- [x] create\_agent() 新增 rules 参数（共享规则目录）
+- [x] WorkerConfig 新增 prompt\_dir 字段（每个 worker 独立提示词目录）
 - [x] 单元测试（16 个用例）
 
 ### 阶段八：CLI 和示例 ✅
+
 - [x] 更新 CLI：支持 --rules、--prompt、--filesystem 参数
-- [x] CLI 使用 run_agent() 替代直接 invoke
+- [x] CLI 使用 run\_agent() 替代直接 invoke
 - [x] 新增 version 子命令
-- [x] 更新 basic_agent.py、custom_permissions.py、multi_user.py
-- [x] 新增 with_prompts.py（提示词管理示例）
-- [x] 新增 with_filesystem.py（文件审计示例）
-- [x] 新增 server_integration.py（FastAPI 服务器集成示例）
-- [x] 更新 multi_agent.py、with_hooks.py
+- [x] 更新 basic\_agent.py、custom\_permissions.py、multi\_user.py
+- [x] 新增 with\_prompts.py（提示词管理示例）
+- [x] 新增 with\_filesystem.py（文件审计示例）
+- [x] 新增 server\_integration.py（FastAPI 服务器集成示例）
+- [x] 更新 multi\_agent.py、with\_hooks.py
 
 ### 阶段九：文档和发布（进行中）
-- [x] API 文档（docs/api_reference.md）
+
+- [x] API 文档（docs/api\_reference.md）
 - [x] README 更新（完整参数参考、中间件管道、知识库、文件审计、提示词管理）
 - [x] PyPI 发布元数据（classifiers、project.urls）
 - [ ] 使用指南
 - [ ] PyPI 实际发布
 
 ### 阶段十：容错机制 ✅
-- [x] 超时控制（MODEL_REQUEST_TIMEOUT，LLM API 调用超时）
-- [x] 失败重试（ResilientMiddleware，指数退避，max_retries 可配置）
-- [x] 递归限制（recursion_limit 参数，防止 Agent 死循环）
+
+- [x] 超时控制（MODEL\_REQUEST\_TIMEOUT，LLM API 调用超时）
+- [x] 失败重试（ResilientMiddleware，指数退避，max\_retries 可配置）
+- [x] 递归限制（recursion\_limit 参数，防止 Agent 死循环）
 - [x] 用户取消（CancellationChecker 协议，支持 Redis/DB/内存等后端）
 - [x] 终止条件（StopCondition 协议，支持轮次限制/规则引擎/外部 API）
-- [x] ResilientMiddleware 集成到 create_agent() 管道
+- [x] ResilientMiddleware 集成到 create\_agent() 管道
 - [x] 单元测试（容错相关测试用例）
 
 ### 阶段十一：安全加固 ✅
+
 - [x] 路径穿越防护（Path.resolve() 规范化）
 - [x] Shell 注入防护（shell=False + shlex.split）
 - [x] 正则命令黑名单（13 种危险命令模式）
 - [x] LLM Hook 默认阻止（模型未配置时 blocked）
-- [x] 跨用户记忆隔离（isolate_by_user 参数）
-- [x] 审计日志 HMAC-SHA256 签名 + verify_log()
+- [x] 跨用户记忆隔离（isolate\_by\_user 参数）
+- [x] 审计日志 HMAC-SHA256 签名 + verify\_log()
 - [x] Workspace 限制生效
-- [x] HTTP Hook URL 白名单（allowed_hosts）
+- [x] HTTP Hook URL 白名单（allowed\_hosts）
 - [x] API Key 启动校验
 - [x] .gitignore 补全
 - [x] 安全单元测试（25 个用例）
 
 ### 阶段十二：高并发优化 ✅
+
 - [x] 记忆 LRU+TTL 缓存（MemoryCache）
 - [x] 跨平台文件锁（FileLock，Windows msvcrt / Unix fcntl）
 - [x] 审计批量缓冲写入（BufferedAuditLog）
@@ -508,13 +538,14 @@ agent = create_agent(
 - [x] 并发压力测试（100 线程，12 个用例）
 
 ### 阶段十三：高级中间件功能 ✅
+
 - [x] 对话历史管理（ConversationHistoryMiddleware，3 种策略）
 - [x] 输出清洗（SanitizerMiddleware，PII/敏感词/泄露检测）
 - [x] 内容护栏（GuardrailsMiddleware，审核/事实检查/格式验证）
 - [x] 人工审批（HumanApprovalMiddleware，glob 模式匹配）
 - [x] 进化记忆（EvolutionMemoryMiddleware，经验存储+自我反思+任务分类）
 - [x] 单元测试（60+ 个用例）
-- [x] 全功能示例（full_featured.py）
+- [x] 全功能示例（full\_featured.py）
 
 ## 七、依赖清单
 
@@ -543,12 +574,12 @@ dependencies = [
 
 ## 八、风险和应对
 
-| 风险 | 影响 | 应对 |
-|------|------|------|
-| Deep Agents API 变更 | 中间件接口变化 | 锁定版本，升级前测试 |
-| OpenHarness 代码质量 | 移植后有 bug | 逐模块写单元测试 |
-| LangGraph 学习曲线 | 开发效率 | 先跑通示例，再深入定制 |
-| 性能开销 | Middleware 链过长 | 按需启用，性能基准测试 |
+| 风险                 | 影响             | 应对          |
+| ------------------ | -------------- | ----------- |
+| Deep Agents API 变更 | 中间件接口变化        | 锁定版本，升级前测试  |
+| OpenHarness 代码质量   | 移植后有 bug       | 逐模块写单元测试    |
+| LangGraph 学习曲线     | 开发效率           | 先跑通示例，再深入定制 |
+| 性能开销               | Middleware 链过长 | 按需启用，性能基准测试 |
 
 ## 九、目录结构
 
@@ -663,3 +694,4 @@ HZAgentBase/
     ├── full_featured.py               # 全功能示例（所有中间件）
     └── server_integration.py          # FastAPI 服务器集成
 ```
+
