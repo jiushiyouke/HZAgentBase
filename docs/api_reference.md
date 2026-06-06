@@ -45,6 +45,12 @@ agent = create_agent(
 | `retriever` | `Retriever \| None` | `None` | 知识库检索器 |
 | `knowledge_top_k` | `int` | `5` | 每次检索 Top-K 条 |
 | `filesystem` | `bool \| dict` | `False` | 文件审计配置 |
+| `conversation_history` | `bool \| dict` | `False` | 对话历史管理配置 |
+| `sanitizer` | `bool \| dict` | `False` | 输出清洗配置 |
+| `guardrails` | `dict \| None` | `None` | 内容护栏配置 |
+| `human_approval_rules` | `list[ApprovalRule] \| None` | `None` | 人工审批规则列表 |
+| `human_approval_callback` | `ApprovalCallback \| None` | `None` | 人工审批回调 |
+| `evolution_memory` | `bool \| dict` | `False` | 进化记忆配置 |
 | `workers` | `list[WorkerConfig] \| None` | `None` | Worker 配置列表 |
 | `middleware` | `Sequence[AgentMiddleware \| tuple] \| None` | `None` | 自定义中间件列表，支持 `(middleware, priority)` 元组 |
 | `backend` | `BackendProtocol \| None` | `None` | 文件系统/沙箱后端 |
@@ -421,10 +427,16 @@ agent = create_agent(
 |------|-----|------|
 | `BEFORE_ALL` | 0 | 最前面 |
 | `PERMISSION` | 5 | 权限中间件位置 |
+| `HUMAN_APPROVAL` | 8 | 人工审批中间件位置 |
 | `HOOKS` | 10 | Hook 中间件位置 |
 | `MEMORY` | 20 | 记忆中间件位置 |
+| `AGENT_MEMORY` | 22 | 进化记忆中间件位置 |
 | `KNOWLEDGE` | 25 | 知识库中间件位置 |
+| `CONVERSATION_HISTORY` | 28 | 对话历史中间件位置 |
 | `DEFAULT` | 30 | 用户自定义中间件默认位置 |
+| `GUARDRAILS` | 32 | 内容护栏中间件位置 |
+| `SANITIZER` | 33 | 输出清洗中间件位置 |
+| `REFLECTION` | 34 | 反思评分中间件位置 |
 | `AUDIT` | 35 | 文件审计中间件位置 |
 | `RESILIENT` | 40 | 容错中间件位置 |
 | `COORDINATOR` | 50 | 多 Agent 编排中间件位置 |
@@ -627,3 +639,198 @@ hz-agent version                 # 版本信息
 ### `hz-agent version`
 
 显示版本号、默认模型和 API 地址。
+
+---
+
+## 对话历史管理
+
+### `ConversationHistoryMiddleware`
+
+```python
+from hz_agent_base import create_agent
+
+# 默认配置（截断模式，16000 tokens）
+agent = create_agent(conversation_history=True)
+
+# 自定义配置
+agent = create_agent(conversation_history={
+    "max_tokens": 16000,
+    "strategy": "truncate",  # truncate / sliding_window / summary
+    "reserve_tokens": 2000,
+    "model": "deepseek-chat",  # 仅 summary 策略需要
+})
+```
+
+**策略说明：**
+
+| 策略 | 说明 |
+|------|------|
+| `truncate` | 超出 token 限制时截断最早的消息（默认） |
+| `sliding_window` | 保留最近的 N 条消息 |
+| `summary` | 对早期消息生成摘要 |
+
+---
+
+## 输出清洗
+
+### `SanitizerMiddleware`
+
+```python
+from hz_agent_base import create_agent
+
+# 启用所有清洗功能
+agent = create_agent(sanitizer=True)
+
+# 自定义配置
+agent = create_agent(sanitizer={
+    "mask_pii": True,           # PII 脱敏
+    "filter_sensitive": True,   # 敏感词过滤
+    "detect_prompt_leak": True, # Prompt 泄露检测
+})
+```
+
+**PII 脱敏规则：**
+
+| 类型 | 原始值 | 脱敏值 |
+|------|--------|--------|
+| 手机号 | `13812345678` | `138****5678` |
+| 邮箱 | `user@example.com` | `***@example.com` |
+| 身份证 | `110101199001011234` | `110101****011234` |
+| 银行卡 | `6222021234567890123` | `6222****0123` |
+
+---
+
+## 内容护栏
+
+### `GuardrailsMiddleware`
+
+```python
+from hz_agent_base import create_agent
+from hz_agent_base.guardrails import ContentModerator, FactChecker, OutputValidator
+
+agent = create_agent(guardrails={
+    "moderator": MyContentModerator(),    # 内容审核器
+    "fact_checker": MyFactChecker(),      # 事实检查器
+    "validator": MyOutputValidator(),     # 输出格式验证器
+})
+```
+
+**协议定义：**
+
+```python
+from hz_agent_base.guardrails import ContentModerator, FactChecker, OutputValidator
+
+# 内容审核
+class MyModerator(ContentModerator):
+    def moderate(self, content: str) -> tuple[bool, list[str]]:
+        """返回 (通过, 问题列表)"""
+        ...
+
+# 事实检查
+class MyChecker(FactChecker):
+    def check(self, content: str, context: str = "") -> tuple[bool, list[str]]:
+        """返回 (通过, 问题列表)"""
+        ...
+
+# 输出格式验证
+class MyValidator(OutputValidator):
+    def validate(self, content: str) -> tuple[bool, list[str]]:
+        """返回 (通过, 问题列表)"""
+        ...
+```
+
+---
+
+## 人工审批
+
+### `HumanApprovalMiddleware`
+
+```python
+from hz_agent_base import create_agent
+from hz_agent_base.human_approval import ApprovalRule, ConsoleApprovalCallback
+
+rules = [
+    ApprovalRule(
+        tool_pattern="bash",            # 匹配工具名（支持 glob）
+        description="执行 bash 命令需要审批",
+    ),
+    ApprovalRule(
+        tool_pattern="write_*",         # 匹配所有写操作
+        arg_conditions={"file_path": "**/config/**"},  # 匹配参数值
+        description="修改配置文件需要审批",
+    ),
+]
+
+agent = create_agent(
+    human_approval_rules=rules,
+    human_approval_callback=ConsoleApprovalCallback(),
+)
+```
+
+**`ApprovalRule` 字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `tool_pattern` | `str` | 工具名 glob 模式 |
+| `arg_conditions` | `dict[str, str]` | 参数匹配条件（值支持 glob） |
+| `description` | `str` | 规则描述 |
+| `priority` | `int` | 优先级（数值越大越先匹配） |
+
+**`ApprovalCallback` 协议：**
+
+```python
+from hz_agent_base.human_approval import ApprovalCallback
+
+class MyCallback(ApprovalCallback):
+    def request_approval(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        rule: ApprovalRule,
+    ) -> bool:
+        """返回 True 执行，False 跳过"""
+        ...
+```
+
+---
+
+## 进化记忆
+
+### `EvolutionMemoryMiddleware`
+
+```python
+from hz_agent_base import create_agent
+
+# 默认配置
+agent = create_agent(evolution_memory=True)
+
+# 自定义配置
+agent = create_agent(evolution_memory={
+    "storage_path": ".evolution_memory",
+    "enable_reflection": True,      # 启用自我反思评分
+    "reflection_threshold": 0.7,    # 质量低于此值触发重试
+    "max_retries": 1,               # 最大重试次数
+    "inject_top_k": 3,              # 注入的历史经验条数
+    "model": "deepseek-chat",       # 反思使用的模型
+})
+```
+
+**任务分类规则：**
+
+| 类型 | 匹配规则 |
+|------|----------|
+| `code_writing` | `写` + `代码`/`脚本`/`Python`/`程序` 等 |
+| `data_analysis` | `分析` + `数据`/`统计`/`图表` 等 |
+| `research` | `研究`/`调研` + `技术`/`方案`/`论文` 等 |
+| `documentation` | `写` + `文档`/`报告`/`说明` 等 |
+| `general` | 不匹配以上任何类型 |
+
+**反思维度：**
+
+| 维度 | 说明 |
+|------|------|
+| completeness | 任务是否完成 |
+| accuracy | 结果是否正确 |
+| efficiency | 是否有更优方案 |
+| risk | 是否引入潜在问题 |
+| maintainability | 代码/方案是否易于维护 |

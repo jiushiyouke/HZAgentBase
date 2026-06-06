@@ -7,13 +7,8 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import HumanMessage, AIMessage
 
-from hz_agent_base.middleware.filesystem import (
-    FileAuditMiddleware,
-    FileOperation,
-    AuditLog,
-    FILE_TOOLS,
-    _classify_operation,
-)
+from hz_agent_base.middleware.filesystem import FileAuditMiddleware
+from hz_agent_base.audit import FileOperation, AuditLog, FILE_TOOLS, classify_operation
 
 
 # ============================================================
@@ -66,25 +61,25 @@ class TestClassifyOperation:
     """测试操作类型分类。"""
 
     def test_write(self):
-        assert _classify_operation("write_file") == "write"
-        assert _classify_operation("create_file") == "write"
+        assert classify_operation("write_file") == "write"
+        assert classify_operation("create_file") == "write"
 
     def test_edit(self):
-        assert _classify_operation("edit_file") == "edit"
-        assert _classify_operation("edit") == "edit"
+        assert classify_operation("edit_file") == "edit"
+        assert classify_operation("edit") == "edit"
 
     def test_read(self):
-        assert _classify_operation("read_file") == "read"
-        assert _classify_operation("read") == "read"
+        assert classify_operation("read_file") == "read"
+        assert classify_operation("read") == "read"
 
     def test_delete(self):
-        assert _classify_operation("delete_file") == "delete"
+        assert classify_operation("delete_file") == "delete"
 
     def test_rename(self):
-        assert _classify_operation("rename_file") == "rename"
+        assert classify_operation("rename_file") == "rename"
 
     def test_other(self):
-        assert _classify_operation("bash") == "other"
+        assert classify_operation("bash") == "other"
 
 
 # ============================================================

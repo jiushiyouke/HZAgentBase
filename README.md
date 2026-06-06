@@ -11,6 +11,11 @@
 - **记忆系统** — 基于文件的持久化跨会话记忆，LRU 缓存 + 文件锁，支持相关性搜索和自动提取
 - **知识库 RAG** — 通过 Retriever 协议接入任意知识库实现，松耦合设计
 - **文件审计** — 文件操作审计日志 + 变更追踪，HMAC-SHA256 签名保证完整性，批量缓冲写入
+- **对话历史管理** — Token 估算 + 三种策略（截断 / 滑动窗口 / 摘要），防止上下文超限
+- **输出清洗** — PII 脱敏（手机/邮箱/身份证/银行卡）、敏感词过滤、Prompt 泄露检测
+- **内容护栏 (Guardrails)** — 内容审核、事实校验、输出格式验证，可自定义校验器
+- **人工审批** — 高风险操作暂停等待人工确认，支持 glob 模式匹配工具名和参数
+- **进化记忆** — 跨会话经验积累 + 自我反思评分，任务自动分类，失败时自动重试
 - **提示词管理** — 目录式提示词加载（base.md + rules/*.md），支持共享规则
 - **多 Agent 编排** — Coordinator / Worker 模式，每个 worker 独立提示词、工具集和技能
 - **容错机制** — LLM 调用超时控制、指数退避重试、递归深度限制、用户取消检查、终止条件
@@ -143,23 +148,33 @@ agent_c = create_agent(model=ChatOpenAI(model="gpt-4", api_key="sk-ccc..."))
 `create_agent()` 按以下顺序组装中间件管道，每个中间件可拦截和修改模型请求：
 
 ```
-1. PermissionMiddleware   ← 权限检查（默认开启）
-2. HookMiddleware         ← 生命周期事件（需传入 hooks 参数）
-3. MemoryMiddleware       ← 记忆注入/提取（需传入 memory_path）
-4. KnowledgeMiddleware    ← 知识库 RAG 检索（需传入 retriever）
-5. FileAuditMiddleware   ← 文件审计 + 变更追踪（需传入 filesystem=True）
-6. [用户自定义 Middleware] ← 通过 middleware 参数传入
-7. ResilientMiddleware    ← 容错：重试、取消、终止条件（默认开启）
-8. CoordinatorMiddleware  ← 多 Agent 编排（需传入 workers）
+ 1. PermissionMiddleware      ← 权限检查（默认开启）
+ 2. HookMiddleware            ← 生命周期事件（需传入 hooks 参数）
+ 3. ConversationHistoryMiddleware ← 对话历史管理（需传入 conversation_history=True）
+ 4. MemoryMiddleware          ← 记忆注入/提取（需传入 memory_path）
+ 5. KnowledgeMiddleware       ← 知识库 RAG 检索（需传入 retriever）
+ 6. HumanApprovalMiddleware   ← 人工审批（需传入 human_approval_rules）
+ 7. EvolutionMemoryMiddleware ← 进化记忆 + 自我反思（需传入 evolution_memory=True）
+ 8. FileAuditMiddleware       ← 文件审计 + 变更追踪（需传入 filesystem=True）
+ 9. SanitizerMiddleware       ← 输出清洗 PII/敏感词（需传入 sanitizer=True）
+10. GuardrailsMiddleware      ← 内容护栏（需传入 guardrails=True）
+11. [用户自定义 Middleware]   ← 通过 middleware 参数传入
+12. ResilientMiddleware       ← 容错：重试、取消、终止条件（默认开启）
+13. CoordinatorMiddleware     ← 多 Agent 编排（需传入 workers）
 ```
 
 | 中间件 | 默认状态 | 启用方式 |
 |--------|---------|---------|
 | Permission | 开启 | 无需额外参数，可通过 `permissions` 自定义 |
 | Hook | 关闭 | `hooks=HookRegistry(...)` |
+| ConversationHistory | 关闭 | `conversation_history=True` 或 `conversation_history={...}` |
 | Memory | 关闭 | `memory_path=".memory/"` |
 | Knowledge | 关闭 | `retriever=your_retriever` |
+| HumanApproval | 关闭 | `human_approval_rules=[ApprovalRule(...)]` |
+| EvolutionMemory | 关闭 | `evolution_memory=True` 或 `evolution_memory={...}` |
 | Filesystem | 关闭 | `filesystem=True` 或 `filesystem={...}` |
+| Sanitizer | 关闭 | `sanitizer=True` 或 `sanitizer={...}` |
+| Guardrails | 关闭 | `guardrails={...}` |
 | Resilient | 开启 | `max_retries=2`，可选 `cancellation_checker`、`stop_condition` |
 | Coordinator | 关闭 | `workers=[WorkerConfig(...)]` |
 
@@ -178,7 +193,7 @@ agent = create_agent(
 )
 ```
 
-可用的优先级常量：`BEFORE_ALL=0`、`PERMISSION=5`、`HOOKS=10`、`MEMORY=20`、`KNOWLEDGE=25`、`DEFAULT=30`、`AUDIT=35`、`RESILIENT=40`、`COORDINATOR=50`、`AFTER_ALL=100`。
+可用的优先级常量：`BEFORE_ALL=0`、`PERMISSION=5`、`HOOKS=10`、`HUMAN_APPROVAL=8`、`AGENT_MEMORY=22`、`CONVERSATION_HISTORY=28`、`MEMORY=20`、`KNOWLEDGE=25`、`GUARDRAILS=32`、`SANITIZER=33`、`REFLECTION=34`、`DEFAULT=30`、`AUDIT=35`、`RESILIENT=40`、`COORDINATOR=50`、`AFTER_ALL=100`。
 
 ## 权限系统
 
@@ -267,6 +282,202 @@ agent = create_agent(filesystem={
 ```
 
 审计日志以 JSONL 格式记录每次文件操作（工具名、文件路径、操作类型、时间戳、是否成功）。
+
+## 对话历史管理
+
+防止对话历史过长导致 token 超限，支持三种策略：
+
+```python
+from hz_agent_base import create_agent
+
+# 截断模式（默认）：超出 token 限制时直接截断最早的消息
+agent = create_agent(conversation_history={"max_tokens": 16000, "strategy": "truncate"})
+
+# 滑动窗口：保留最近的 N 条消息
+agent = create_agent(conversation_history={"max_tokens": 16000, "strategy": "sliding_window"})
+
+# 摘要模式：超出时对早期消息生成摘要（需要 model 支持）
+agent = create_agent(conversation_history={"max_tokens": 16000, "strategy": "summary", "model": "deepseek-chat"})
+```
+
+配置项：
+
+| 参数 | 类型 | 说明 | 默认值 |
+|------|------|------|--------|
+| `max_tokens` | `int` | 最大 token 限制 | `16000` |
+| `strategy` | `str` | 策略：`truncate` / `sliding_window` / `summary` | `"truncate"` |
+| `reserve_tokens` | `int` | 为响应保留的 token 数 | `2000` |
+| `model` | `str` | 摘要使用的模型（仅 summary 策略） | `None` |
+
+Token 估算使用 4 字符/token 的快速估算，不依赖外部 tokenizer。
+
+## 输出清洗 (Sanitizer)
+
+自动对模型输出进行脱敏处理：
+
+```python
+from hz_agent_base import create_agent
+
+# 启用所有清洗功能
+agent = create_agent(sanitizer=True)
+
+# 自定义配置
+agent = create_agent(sanitizer={
+    "mask_pii": True,           # PII 脱敏（手机/邮箱/身份证/银行卡）
+    "filter_sensitive": True,   # 敏感词过滤
+    "detect_prompt_leak": True, # 检测系统提示词泄露
+})
+```
+
+PII 脱敏效果：
+- `13812345678` → `138****5678`
+- `user@example.com` → `***@example.com`
+- `110101199001011234` → `110101****011234`
+- `6222021234567890123` → `6222****0123`
+
+## 内容护栏 (Guardrails)
+
+对模型输出进行多维度校验：
+
+```python
+from hz_agent_base import create_agent
+from hz_agent_base.guardrails import ContentModerator, FactChecker, OutputValidator
+
+# 自定义内容审核器
+class MyContentModerator(ContentModerator):
+    def moderate(self, content: str) -> tuple[bool, list[str]]:
+        issues = []
+        if "违法" in content:
+            issues.append("包含违法内容")
+        return (len(issues) == 0, issues)
+
+# 自定义事实检查器
+class MyFactChecker(FactChecker):
+    def check(self, content: str, context: str = "") -> tuple[bool, list[str]]:
+        # 调用外部事实检查 API...
+        return (True, [])
+
+agent = create_agent(guardrails={
+    "moderator": MyContentModerator(),
+    "fact_checker": MyFactChecker(),
+    "validator": None,  # 可选的输出格式验证器
+})
+```
+
+校验器协议：
+
+```python
+from hz_agent_base.guardrails import ContentModerator, FactChecker, OutputValidator
+
+# 内容审核
+class MyModerator(ContentModerator):
+    def moderate(self, content: str) -> tuple[bool, list[str]]:
+        """返回 (通过, 问题列表)"""
+        ...
+
+# 事实检查
+class MyChecker(FactChecker):
+    def check(self, content: str, context: str = "") -> tuple[bool, list[str]]:
+        """返回 (通过, 问题列表)"""
+        ...
+
+# 输出格式验证
+class MyValidator(OutputValidator):
+    def validate(self, content: str) -> tuple[bool, list[str]]:
+        """返回 (通过, 问题列表)"""
+        ...
+```
+
+## 人工审批 (Human-in-the-Loop)
+
+高风险工具调用暂停等待人工确认：
+
+```python
+from hz_agent_base import create_agent
+from hz_agent_base.human_approval import ApprovalRule, ConsoleApprovalCallback
+
+# 定义审批规则
+rules = [
+    # 匹配所有 bash 命令
+    ApprovalRule(
+        tool_pattern="bash",
+        description="执行 bash 命令需要审批",
+    ),
+    # 匹配特定路径的文件写入
+    ApprovalRule(
+        tool_pattern="write_file",
+        arg_conditions={"file_path": "**/config/**"},
+        description="修改配置文件需要审批",
+    ),
+    # 匹配危险命令
+    ApprovalRule(
+        tool_pattern="bash",
+        arg_conditions={"command": "*rm *"},
+        description="删除命令需要审批",
+        priority=10,  # 高优先级
+    ),
+]
+
+# 使用控制台回调（生产环境可替换为 Web UI、Slack 等）
+agent = create_agent(
+    human_approval_rules=rules,
+    human_approval_callback=ConsoleApprovalCallback(),
+)
+```
+
+审批回调协议：
+
+```python
+from hz_agent_base.human_approval import ApprovalCallback
+
+class MyApprovalCallback(ApprovalCallback):
+    def request_approval(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        rule: ApprovalRule,
+    ) -> bool:
+        """返回 True 执行，False 跳过"""
+        # 发送到 Web UI、Slack、企业微信等...
+        ...
+```
+
+## 进化记忆 (Evolution Memory)
+
+跨会话经验积累 + 自我反思评分，帮助 Agent 从成功和失败中学习：
+
+```python
+from hz_agent_base import create_agent
+
+# 使用默认配置
+agent = create_agent(evolution_memory=True)
+
+# 自定义配置
+agent = create_agent(evolution_memory={
+    "storage_path": ".evolution_memory",
+    "enable_reflection": True,      # 启用自我反思评分
+    "reflection_threshold": 0.7,    # 质量低于此值触发重试
+    "max_retries": 1,               # 最大重试次数
+    "inject_top_k": 3,              # 注入的历史经验条数
+    "model": "deepseek-chat",       # 反思使用的模型
+})
+```
+
+**任务自动分类**：基于双关键字匹配，自动识别任务类型：
+- 代码相关（code_writing）：`写` + `代码`/`脚本`/`Python` 等
+- 数据分析（data_analysis）：`分析` + `数据`/`统计` 等
+- 研究类（research）：`研究`/`调研` + `技术`/`方案` 等
+- 文档类（documentation）：`写` + `文档`/`报告` 等
+- 其他（general）
+
+**反思评分维度**（每个 0-1 分）：
+1. 完整性 — 任务是否完成
+2. 准确性 — 结果是否正确
+3. 效率 — 是否有更优方案
+4. 风险 — 是否引入潜在问题
+5. 可维护性 — 代码/方案是否易于维护
+
+**经验注入**：执行任务前，自动检索同类历史经验作为参考。
 
 ## 容错机制
 
@@ -564,6 +775,12 @@ hz-agent version
 | `retriever` | `Retriever \| None` | 知识库检索器（实现 Retriever 协议） |
 | `knowledge_top_k` | `int` | 知识库每次检索条数，默认 5 |
 | `filesystem` | `bool \| dict` | 文件审计配置，False 为关闭 |
+| `conversation_history` | `bool \| dict` | 对话历史管理，True 使用默认配置 |
+| `sanitizer` | `bool \| dict` | 输出清洗，True 启用 PII/敏感词/泄露检测 |
+| `guardrails` | `dict \| None` | 内容护栏配置 |
+| `human_approval_rules` | `list[ApprovalRule] \| None` | 人工审批规则列表 |
+| `human_approval_callback` | `ApprovalCallback \| None` | 人工审批回调 |
+| `evolution_memory` | `bool \| dict` | 进化记忆配置，True 使用默认配置 |
 | `workers` | `list[WorkerConfig] \| None` | Worker 配置列表，启用多 Agent 编排 |
 | `middleware` | `Sequence[AgentMiddleware \| tuple] \| None` | 自定义中间件列表，支持 `(middleware, priority)` 元组 |
 | `backend` | `BackendProtocol \| None` | 文件系统/沙箱后端 |
@@ -579,47 +796,59 @@ hz-agent version
 ```
 HZAgentBase/
 ├── src/hz_agent_base/
-│   ├── agent.py              # create_agent() / run_agent() 入口
-│   ├── cli.py                # CLI 工具
-│   ├── config.py             # 配置管理
-│   ├── middleware/            # 中间件实现
-│   │   ├── permission.py     # 权限中间件
-│   │   ├── hook.py           # Hook 中间件
-│   │   ├── memory.py         # 记忆中间件
-│   │   ├── knowledge.py      # 知识库 RAG 中间件
-│   │   ├── filesystem.py     # 文件审计中间件
-│   │   └── resilient.py      # 容错中间件（重试 / 取消 / 终止）
-│   ├── resilience/            # 容错协议（CancellationChecker / StopCondition）
-│   ├── permissions/           # 权限系统（Checker / Modes / Settings）
-│   ├── hooks/                 # Hook 系统（Events / Registry / Executor）
-│   ├── memory/                # 记忆系统（Manager / Relevance / Cache）
-│   ├── knowledge/             # 知识库协议（Retriever Protocol）
-│   ├── coordinator/           # 多 Agent 编排（Coordinator / Worker / Team）
-│   ├── prompts/               # 提示词管理（PromptManager）
-│   ├── tools/                 # 工具扩展
-│   ├── backends/              # 后端抽象
-│   └── utils/                 # 工具类（常量定义等）
-├── tests/                     # 单元测试（220+ 个用例）
-├── examples/                  # 使用示例
-│   ├── basic_agent.py         # 最简用法
-│   ├── custom_permissions.py  # 权限控制
-│   ├── multi_user.py          # 多用户隔离
-│   ├── multi_agent.py         # 多 Agent 编排
-│   ├── with_hooks.py          # Hook 系统
-│   ├── with_memory.py         # 记忆系统
-│   ├── with_knowledge.py      # 知识库 RAG
-│   ├── with_prompts.py        # 提示词管理
-│   ├── with_filesystem.py     # 文件审计
-│   ├── with_streaming.py      # 流式输出
-│   ├── async_agent.py         # 异步调用
-│   ├── multi_tenant.py        # 多租户支持
-│   ├── middleware_priority.py # 中间件优先级
-│   ├── custom_middleware.py   # 自定义中间件
-│   └── server_integration.py  # FastAPI 服务器集成（含 SSE 流式）
+│   ├── agent.py                # create_agent() / run_agent() 入口
+│   ├── cli.py                  # CLI 工具
+│   ├── config.py               # 配置管理
+│   ├── middleware/              # 中间件实现
+│   │   ├── permission.py       # 权限中间件
+│   │   ├── hook.py             # Hook 中间件
+│   │   ├── memory.py           # 记忆中间件
+│   │   ├── knowledge.py        # 知识库 RAG 中间件
+│   │   ├── filesystem.py       # 文件审计中间件
+│   │   ├── conversation_history.py  # 对话历史管理中间件
+│   │   ├── sanitizer.py        # 输出清洗中间件
+│   │   ├── guardrails.py       # 内容护栏中间件
+│   │   ├── human_approval.py   # 人工审批中间件
+│   │   ├── evolution_memory.py # 进化记忆中间件
+│   │   └── resilient.py        # 容错中间件（重试 / 取消 / 终止）
+│   ├── conversation_history/   # 对话历史工具（Token 估算、格式化）
+│   ├── sanitizer/              # 清洗工具（PII 脱敏、敏感词）
+│   ├── guardrails/             # 护栏协议（ContentModerator / FactChecker / OutputValidator）
+│   ├── human_approval/         # 人工审批（规则匹配、回调协议）
+│   ├── evolution_memory/       # 进化记忆（经验存储、反思评估、任务分类）
+│   ├── audit/                  # 文件审计（操作日志、变更追踪）
+│   ├── resilience/             # 容错协议（CancellationChecker / StopCondition）
+│   ├── permissions/            # 权限系统（Checker / Modes / Settings）
+│   ├── hooks/                  # Hook 系统（Events / Registry / Executor）
+│   ├── memory/                 # 记忆系统（Manager / Relevance / Cache）
+│   ├── knowledge/              # 知识库协议（Retriever Protocol）
+│   ├── coordinator/            # 多 Agent 编排（Coordinator / Worker / Team）
+│   ├── prompts/                # 提示词管理（PromptManager）
+│   ├── tools/                  # 工具扩展
+│   ├── backends/               # 后端抽象
+│   └── utils/                  # 工具类（常量定义等）
+├── tests/                      # 单元测试（280+ 个用例）
+├── examples/                   # 使用示例
+│   ├── basic_agent.py          # 最简用法
+│   ├── custom_permissions.py   # 权限控制
+│   ├── multi_user.py           # 多用户隔离
+│   ├── multi_agent.py          # 多 Agent 编排
+│   ├── with_hooks.py           # Hook 系统
+│   ├── with_memory.py          # 记忆系统
+│   ├── with_knowledge.py       # 知识库 RAG
+│   ├── with_prompts.py         # 提示词管理
+│   ├── with_filesystem.py      # 文件审计
+│   ├── with_streaming.py       # 流式输出
+│   ├── async_agent.py          # 异步调用
+│   ├── multi_tenant.py         # 多租户支持
+│   ├── middleware_priority.py  # 中间件优先级
+│   ├── custom_middleware.py    # 自定义中间件
+│   ├── full_featured.py        # 全功能示例（所有中间件）
+│   └── server_integration.py   # FastAPI 服务器集成（含 SSE 流式）
 └── docs/
-    ├── technical_roadmap.md   # 技术路线图
-    ├── api_reference.md       # API 参考文档
-    └── security_plan.md       # 安全防护方案
+    ├── technical_roadmap.md    # 技术路线图
+    ├── api_reference.md        # API 参考文档
+    └── security_plan.md        # 安全防护方案
 ```
 
 ## 致谢

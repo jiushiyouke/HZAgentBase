@@ -273,6 +273,12 @@ def create_agent(
         coordinator = CoordinatorMiddleware(workers, shared_rules=rules)
         pipeline.append((MW_COORDINATOR, coordinator))
 
+    # 自动为需要模型的中间件注入模型实例
+    # 遍历所有中间件，如果有 model 属性且为 None，则注入 resolved_model
+    for _, mw in pipeline:
+        if hasattr(mw, 'model') and mw.model is None:
+            mw.model = resolved_model
+
     # 按优先级排序
     pipeline.sort(key=lambda x: x[0])
     harness_middleware = [mw for _, mw in pipeline]

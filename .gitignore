@@ -73,3 +73,7 @@ service-account.json
 
 # Claude Code 会话数据
 .claude/
+
+# Agent记忆文档
+**/.evolution_memory/
+

@@ -54,14 +54,19 @@ HZAgentBase 是一个可复用的 Agent Harness 基础设施库，为上层业�
 │  ┌──────────────────▼───────────────────────────────────┐   │
 │  │            Middleware 管道（按序执行）                 │   │
 │  │                                                      │   │
-│  │  1. PermissionMiddleware  ← 权限检查                 │   │
-│  │  2. HookMiddleware        ← 生命周期事件             │   │
-│  │  3. MemoryMiddleware      ← 记忆注入/提取            │   │
-│  │  4. KnowledgeMiddleware   ← 知识库 RAG 检索          │   │
-│  │  5. FileAuditMiddleware  ← 文件审计 + 变更追踪      │   │
-│  │  6. [用户自定义 Middleware]                           │   │
-│  │  7. ResilientMiddleware   ← 容错：重试/取消/终止     │   │
-│  │  8. CoordinatorMiddleware ← 多 Agent 编排            │   │
+│  │   1. PermissionMiddleware       ← 权限检查           │   │
+│  │   2. HookMiddleware             ← 生命周期事件       │   │
+│  │   3. ConversationHistory        ← 对话历史管理       │   │
+│  │   4. MemoryMiddleware           ← 记忆注入/提取      │   │
+│  │   5. KnowledgeMiddleware        ← 知识库 RAG 检索    │   │
+│  │   6. HumanApprovalMiddleware    ← 人工审批           │   │
+│  │   7. EvolutionMemoryMiddleware  ← 进化记忆           │   │
+│  │   8. FileAuditMiddleware        ← 文件审计           │   │
+│  │   9. SanitizerMiddleware        ← 输出清洗           │   │
+│  │  10. GuardrailsMiddleware       ← 内容护栏           │   │
+│  │  11. [用户自定义 Middleware]                         │   │
+│  │  12. ResilientMiddleware        ← 容错：重试/取消    │   │
+│  │  13. CoordinatorMiddleware      ← 多 Agent 编排      │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -179,6 +184,88 @@ agent = create_agent(retriever=my_retriever)
 
 **架构决策**：知识库实现独立于 HZAgentBase，不引入 chromadb、PyTorch 等重依赖。
 通过 Python `typing.Protocol` 实现运行时类型检查，任何实现 `retrieve()` 方法的对象均可接入。
+
+### 4.6 对话历史管理
+
+防止对话历史过长导致 token 超限：
+
+```python
+# 三种策略
+- truncate: 超出 token 限制时截断最早消息（默认）
+- sliding_window: 保留最近 N 条消息
+- summary: 对早期消息生成摘要（需要 LLM）
+
+# Token 估算
+使用 4 字符/token 的快速估算，不依赖外部 tokenizer
+```
+
+### 4.7 输出清洗 (Sanitizer)
+
+自动对模型输出进行脱敏处理：
+
+```python
+# PII 脱敏
+- 手机号：138****5678
+- 邮箱：***@example.com
+- 身份证：110101****011234
+- 银行卡：6222****0123
+
+# 敏感词过滤
+可配置敏感词列表，匹配后替换为 ***
+
+# Prompt 泄露检测
+检测系统提示词是否被泄露到输出中
+```
+
+### 4.8 内容护栏 (Guardrails)
+
+对模型输出进行多维度校验：
+
+```python
+# 三个协议
+class ContentModerator(Protocol):
+    def moderate(self, content: str) -> tuple[bool, list[str]]: ...
+
+class FactChecker(Protocol):
+    def check(self, content: str, context: str = "") -> tuple[bool, list[str]]: ...
+
+class OutputValidator(Protocol):
+    def validate(self, content: str) -> tuple[bool, list[str]]: ...
+```
+
+### 4.9 人工审批 (Human-in-the-Loop)
+
+高风险工具调用暂停等待人工确认：
+
+```python
+# 规则匹配
+- tool_pattern: glob 模式匹配工具名（如 "bash"、"write_*"）
+- arg_conditions: 匹配工具参数值（支持 glob）
+- 优先级排序，高优先级规则先匹配
+
+# 审批回调
+class ApprovalCallback(Protocol):
+    def request_approval(self, tool_name, tool_args, rule) -> bool: ...
+```
+
+### 4.10 进化记忆 (Evolution Memory)
+
+跨会话经验积累 + 自我反思评分：
+
+```python
+# 任务自动分类
+基于双关键字匹配：code_writing、data_analysis、research、documentation、general
+
+# 反思维度（每个 0-1 分）
+1. 完整性 — 任务是否完成
+2. 准确性 — 结果是否正确
+3. 效率 — 是否有更优方案
+4. 风险 — 是否引入潜在问题
+5. 可维护性 — 代码/方案是否易于维护
+
+# 经验注入
+执行任务前，自动检索同类历史经验作为参考
+```
 
 ## 五、对外 API 设计
 
@@ -420,6 +507,15 @@ agent = create_agent(
 - [x] Hook 全局线程池并行执行
 - [x] 并发压力测试（100 线程，12 个用例）
 
+### 阶段十三：高级中间件功能 ✅
+- [x] 对话历史管理（ConversationHistoryMiddleware，3 种策略）
+- [x] 输出清洗（SanitizerMiddleware，PII/敏感词/泄露检测）
+- [x] 内容护栏（GuardrailsMiddleware，审核/事实检查/格式验证）
+- [x] 人工审批（HumanApprovalMiddleware，glob 模式匹配）
+- [x] 进化记忆（EvolutionMemoryMiddleware，经验存储+自我反思+任务分类）
+- [x] 单元测试（60+ 个用例）
+- [x] 全功能示例（full_featured.py）
+
 ## 七、依赖清单
 
 ```toml
@@ -461,49 +557,76 @@ HZAgentBase/
 ├── pyproject.toml
 ├── README.md
 ├── docs/
-│   └── technical_roadmap.md
+│   ├── technical_roadmap.md
+│   └── api_reference.md
 ├── src/
 │   └── hz_agent_base/
-│       ├── __init__.py           # 公开 API
-│       ├── agent.py              # create_agent() 入口
+│       ├── __init__.py                # 公开 API
+│       ├── agent.py                   # create_agent() 入口
 │       ├── middleware/
 │       │   ├── __init__.py
-│       │   ├── permission.py     # 权限中间件
-│       │   ├── hook.py           # Hook 中间件
-│       │   ├── memory.py         # 记忆中间件
-│       │   ├── knowledge.py      # 知识库中间件
-│       │   ├── filesystem.py     # 文件审计中间件
-│       │   └── resilient.py      # 容错中间件（重试/取消/终止）
+│       │   ├── permission.py          # 权限中间件
+│       │   ├── hook.py                # Hook 中间件
+│       │   ├── memory.py              # 记忆中间件
+│       │   ├── knowledge.py           # 知识库中间件
+│       │   ├── filesystem.py          # 文件审计中间件
+│       │   ├── conversation_history.py # 对话历史管理中间件
+│       │   ├── sanitizer.py           # 输出清洗中间件
+│       │   ├── guardrails.py          # 内容护栏中间件
+│       │   ├── human_approval.py      # 人工审批中间件
+│       │   ├── evolution_memory.py    # 进化记忆中间件
+│       │   └── resilient.py           # 容错中间件（重试/取消/终止）
+│       ├── conversation_history/      # 对话历史工具
+│       │   ├── __init__.py
+│       │   └── tokenizer.py           # Token 估算
+│       ├── sanitizer/                 # 清洗工具
+│       │   ├── __init__.py
+│       │   └── pii.py                 # PII 脱敏
+│       ├── guardrails/                # 护栏协议
+│       │   ├── __init__.py
+│       │   └── protocols.py           # ContentModerator / FactChecker / OutputValidator
+│       ├── human_approval/            # 人工审批
+│       │   ├── __init__.py
+│       │   └── rules.py               # 审批规则
+│       ├── evolution_memory/          # 进化记忆
+│       │   ├── __init__.py
+│       │   ├── types.py               # 核心类型（TaskExperience 等）
+│       │   ├── evaluator.py           # 反思评估器
+│       │   └── store.py               # 经验存储
+│       ├── audit/                     # 文件审计
+│       │   ├── __init__.py
+│       │   ├── operations.py          # 操作分类
+│       │   └── auditlog.py            # 审计日志
 │       ├── resilience/
 │       │   ├── __init__.py
-│       │   └── protocols.py      # CancellationChecker / StopCondition 协议
+│       │   └── protocols.py           # CancellationChecker / StopCondition 协议
 │       ├── knowledge/
 │       │   ├── __init__.py
-│       │   └── protocol.py       # Retriever 协议定义
+│       │   └── protocol.py            # Retriever 协议定义
 │       ├── prompts/
 │       │   ├── __init__.py
-│       │   └── manager.py        # PromptManager 提示词管理
+│       │   └── manager.py             # PromptManager 提示词管理
 │       ├── permissions/
 │       │   ├── __init__.py
-│       │   ├── checker.py        # PermissionChecker
-│       │   ├── modes.py          # 权限模式
-│       │   └── settings.py       # 权限配置
+│       │   ├── checker.py             # PermissionChecker
+│       │   ├── modes.py               # 权限模式
+│       │   └── settings.py            # 权限配置
 │       ├── hooks/
 │       │   ├── __init__.py
-│       │   ├── events.py         # HookEvent
-│       │   ├── schemas.py        # Hook 定义
-│       │   ├── registry.py       # HookRegistry
-│       │   └── executor.py       # HookExecutor
+│       │   ├── events.py              # HookEvent
+│       │   ├── schemas.py             # Hook 定义
+│       │   ├── registry.py            # HookRegistry
+│       │   └── executor.py            # HookExecutor
 │       ├── memory/
 │       │   ├── __init__.py
-│       │   ├── manager.py        # 记忆管理
-│       │   ├── relevance.py      # 记忆搜索与相关性算法
-│       │   └── cache.py          # LRU+TTL 缓存 + 跨平台文件锁
+│       │   ├── manager.py             # 记忆管理
+│       │   ├── relevance.py           # 记忆搜索与相关性算法
+│       │   └── cache.py               # LRU+TTL 缓存 + 跨平台文件锁
 │       ├── coordinator/
 │       │   ├── __init__.py
-│       │   ├── coordinator.py    # Coordinator 模式
-│       │   ├── worker.py         # Worker 配置
-│       │   └── team.py           # TeamRegistry
+│       │   ├── coordinator.py         # Coordinator 模式
+│       │   ├── worker.py              # Worker 配置
+│       │   └── team.py                # TeamRegistry
 │       ├── tools/
 │       │   └── __init__.py
 │       └── backends/
@@ -520,17 +643,23 @@ HZAgentBase/
 │   ├── test_filesystem.py
 │   ├── test_coordinator.py
 │   ├── test_prompts.py
-│   ├── test_security.py          # 安全加固测试（25 个用例）
-│   ├── test_concurrency.py       # 并发压力测试（12 个用例）
-│   └── test_memory_cache.py      # 缓存和文件锁测试（16 个用例）
+│   ├── test_security.py               # 安全加固测试（25 个用例）
+│   ├── test_concurrency.py            # 并发压力测试（12 个用例）
+│   ├── test_memory_cache.py           # 缓存和文件锁测试（16 个用例）
+│   ├── test_conversation_history.py   # 对话历史测试（13 个用例）
+│   ├── test_sanitizer.py              # 输出清洗测试（15 个用例）
+│   ├── test_guardrails.py             # 内容护栏测试（12 个用例）
+│   ├── test_human_approval.py         # 人工审批测试（14 个用例）
+│   └── test_evolution_memory.py       # 进化记忆测试（16 个用例）
 └── examples/
-    ├── basic_agent.py          # 最简用法
-    ├── custom_permissions.py   # 权限控制
-    ├── multi_user.py           # 多用户隔离
-    ├── multi_agent.py          # 多 Agent 编排
-    ├── with_hooks.py           # Hook 系统
-    ├── with_memory.py          # 记忆系统
-    ├── with_prompts.py         # 提示词管理
-    ├── with_filesystem.py      # 文件审计
-    └── server_integration.py   # FastAPI 服务器集成
+    ├── basic_agent.py                 # 最简用法
+    ├── custom_permissions.py          # 权限控制
+    ├── multi_user.py                  # 多用户隔离
+    ├── multi_agent.py                 # 多 Agent 编排
+    ├── with_hooks.py                  # Hook 系统
+    ├── with_memory.py                 # 记忆系统
+    ├── with_prompts.py                # 提示词管理
+    ├── with_filesystem.py             # 文件审计
+    ├── full_featured.py               # 全功能示例（所有中间件）
+    └── server_integration.py          # FastAPI 服务器集成
 ```
