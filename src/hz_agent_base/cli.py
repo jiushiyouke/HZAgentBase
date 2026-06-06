@@ -70,6 +70,9 @@ hz-agent chat --stream       # 流式输出
 |------|------|
 | `hz-agent chat` | 交互式对话 |
 | `hz-agent chat --stream` | 流式输出（逐字显示） |
+| `hz-agent chat --sanitizer` | 启用 PII 脱敏 |
+| `hz-agent chat --guardrails` | 启用内容护栏 |
+| `hz-agent chat --evolution-memory` | 启用进化记忆 |
 | `hz-agent run "问题"` | 单次执行 |
 | `hz-agent run "问题" --stream` | 单次执行 + 流式输出 |
 | `hz-agent run "问题" --output json` | 单次执行，JSON 输出 |
@@ -80,6 +83,11 @@ hz-agent chat --stream       # 流式输出
 | `hz-agent memory show <name>` | 查看记忆内容 |
 | `hz-agent memory search <query>` | 搜索相关记忆 |
 | `hz-agent memory clear` | 清空所有记忆 |
+| `hz-agent evolution list` | 查看进化经验 |
+| `hz-agent evolution stats` | 进化记忆统计 |
+| `hz-agent evolution show <id>` | 查看经验详情 |
+| `hz-agent evolution similar <query>` | 搜索相似经验 |
+| `hz-agent evolution clear` | 清空进化记忆 |
 | `hz-agent audit show` | 查看审计日志 |
 | `hz-agent audit stats` | 审计统计汇总 |
 | `hz-agent audit export` | 导出审计日志（CSV） |
@@ -229,6 +237,10 @@ def config_path():
 @click.option("--prompt", default=None, help="System prompt (string or file/directory path)")
 @click.option("--filesystem", is_flag=True, help="Enable file operation audit")
 @click.option("--stream", is_flag=True, help="Enable streaming output")
+@click.option("--sanitizer", is_flag=True, help="Enable PII masking and sensitive word filtering")
+@click.option("--guardrails", is_flag=True, help="Enable content moderation and fact checking")
+@click.option("--evolution-memory", is_flag=True, help="Enable evolution memory (learn from tasks)")
+@click.option("--conversation-history", is_flag=True, help="Enable conversation history management")
 @click.option("--api-key", default=None, help="API key override")
 def chat(
     model: str | None,
@@ -239,6 +251,10 @@ def chat(
     prompt: str | None,
     filesystem: bool,
     stream: bool,
+    sanitizer: bool,
+    guardrails: bool,
+    evolution_memory: bool,
+    conversation_history: bool,
     api_key: str | None,
 ):
     """交互式对话。"""
@@ -251,15 +267,28 @@ def chat(
         permissions=PermissionSettings(mode=mode),
         memory_path=memory,
         filesystem=filesystem,
+        sanitizer=sanitizer,
+        guardrails={} if guardrails else None,
+        evolution_memory=evolution_memory,
+        conversation_history=conversation_history,
         api_key=api_key,
     )
 
+    # 显示启用的功能
     console.print("[bold green]HZAgentBase Chat[/bold green]")
     model_name = model or "deepseek-v4-flash"
-    console.print(f"Model: {model_name} | Mode: {mode.value}", end="")
+    features = [f"Model: {model_name}", f"Mode: {mode.value}"]
     if stream:
-        console.print(" | Stream: ON", end="")
-    console.print()
+        features.append("Stream: ON")
+    if sanitizer:
+        features.append("Sanitizer: ON")
+    if guardrails:
+        features.append("Guardrails: ON")
+    if evolution_memory:
+        features.append("Evolution: ON")
+    if conversation_history:
+        features.append("History: ON")
+    console.print(" | ".join(features))
     if memory:
         console.print(f"Memory: {memory}")
     if rules:
@@ -313,6 +342,10 @@ def chat(
 @click.option("--thread", default=None, help="Thread ID for session isolation")
 @click.option("--stream", is_flag=True, help="Enable streaming output")
 @click.option("--output", "output_format", default=None, type=click.Choice(["json"]), help="Output format")
+@click.option("--sanitizer", is_flag=True, help="Enable PII masking and sensitive word filtering")
+@click.option("--guardrails", is_flag=True, help="Enable content moderation and fact checking")
+@click.option("--evolution-memory", is_flag=True, help="Enable evolution memory")
+@click.option("--conversation-history", is_flag=True, help="Enable conversation history management")
 @click.option("--api-key", default=None, help="API key override")
 def run(
     prompt: str,
@@ -321,6 +354,10 @@ def run(
     thread: str | None,
     stream: bool,
     output_format: str | None,
+    sanitizer: bool,
+    guardrails: bool,
+    evolution_memory: bool,
+    conversation_history: bool,
     api_key: str | None,
 ):
     """单次执行并输出结果。"""
@@ -329,6 +366,10 @@ def run(
     agent = create_agent(
         model=model,
         permissions=PermissionSettings(mode=mode),
+        sanitizer=sanitizer,
+        guardrails={} if guardrails else None,
+        evolution_memory=evolution_memory,
+        conversation_history=conversation_history,
         api_key=api_key,
     )
 
@@ -688,6 +729,209 @@ def audit_verify(path: str):
             console.print(f"  [red]{error}[/]")
         if len(errors) > 10:
             console.print(f"  [dim]...共 {len(errors)} 个错误[/]")
+
+
+# ============================================================
+# evolution — 进化记忆管理
+# ============================================================
+
+@main.group()
+def evolution():
+    """进化记忆管理命令。"""
+    pass
+
+
+@evolution.command("list")
+@click.option("--path", default=".evolution_memory", help="Evolution memory directory path")
+@click.option("--limit", default=20, help="Number of recent entries to show")
+@click.option("--type", "task_type", default=None, help="Filter by task type (code_writing, data_analysis, etc.)")
+@click.option("--result", default=None, type=click.Choice(["success", "failure"]), help="Filter by result")
+def evolution_list(path: str, limit: int, task_type: str | None, result: str | None):
+    """查看积累的任务经验。"""
+    from .evolution_memory.store import ExperienceStore
+
+    store = ExperienceStore(store_path=path)
+    experiences = store.list_experiences(limit=limit * 10)  # 多加载一些用于过滤
+
+    if not experiences:
+        console.print("[yellow]没有任务经验记录。[/]")
+        console.print("使用 `create_agent(evolution_memory=True)` 开启进化记忆")
+        return
+
+    # 应用过滤器
+    if task_type:
+        experiences = [e for e in experiences if e.task_type == task_type]
+    if result:
+        experiences = [e for e in experiences if e.result == result]
+
+    # 只显示 limit 条
+    experiences = experiences[-limit:]
+
+    table = Table(title=f"进化记忆 (最近 {len(experiences)} 条)")
+    table.add_column("ID", style="dim")
+    table.add_column("任务类型", style="bold")
+    table.add_column("结果")
+    table.add_column("耗时")
+    table.add_column("任务描述")
+
+    for exp in experiences:
+        result_icon = "[green]✓[/]" if exp.result == "success" else "[red]✗[/]"
+        duration = f"{exp.duration:.1f}s" if exp.duration else "-"
+        task_preview = exp.task[:50] + "..." if len(exp.task) > 50 else exp.task
+        table.add_row(exp.id, exp.task_type, result_icon, duration, task_preview)
+
+    console.print(table)
+
+
+@evolution.command("stats")
+@click.option("--path", default=".evolution_memory", help="Evolution memory directory path")
+def evolution_stats(path: str):
+    """进化记忆统计汇总。"""
+    from .evolution_memory.store import ExperienceStore
+
+    store = ExperienceStore(store_path=path)
+    experiences = store.list_experiences(limit=10000)
+
+    if not experiences:
+        console.print("[yellow]没有任务经验记录。[/]")
+        return
+
+    total = len(experiences)
+    success = sum(1 for e in experiences if e.result == "success")
+    failure = total - success
+
+    # 按任务类型统计
+    type_counts: dict[str, int] = {}
+    for e in experiences:
+        type_counts[e.task_type] = type_counts.get(e.task_type, 0) + 1
+
+    # 计算平均耗时
+    durations = [e.duration for e in experiences if e.duration and e.duration > 0]
+    avg_duration = sum(durations) / len(durations) if durations else 0
+
+    table = Table(title="进化记忆统计")
+    table.add_column("指标", style="bold")
+    table.add_column("值")
+
+    table.add_row("总任务数", str(total))
+    table.add_row("成功", f"[green]{success}[/]")
+    table.add_row("失败", f"[red]{failure}[/]" if failure else "0")
+    table.add_row("成功率", f"{success/total*100:.1f}%")
+    table.add_row("平均耗时", f"{avg_duration:.1f}s")
+
+    console.print(table)
+
+    # 任务类型分布
+    if type_counts:
+        type_table = Table(title="任务类型分布")
+        type_table.add_column("类型", style="bold")
+        type_table.add_column("次数")
+        type_table.add_column("成功率")
+
+        for task_type, count in sorted(type_counts.items(), key=lambda x: -x[1]):
+            type_success = sum(1 for e in experiences if e.task_type == task_type and e.result == "success")
+            success_rate = type_success / count * 100 if count > 0 else 0
+            type_table.add_row(task_type, str(count), f"{success_rate:.1f}%")
+
+        console.print(type_table)
+
+
+@evolution.command("show")
+@click.argument("experience_id")
+@click.option("--path", default=".evolution_memory", help="Evolution memory directory path")
+def evolution_show(experience_id: str, path: str):
+    """查看指定经验的详细信息。"""
+    from .evolution_memory.store import ExperienceStore
+
+    store = ExperienceStore(store_path=path)
+    experience = store.get_experience(experience_id)
+
+    if not experience:
+        console.print(f"[red]经验不存在:[/] {experience_id}")
+        console.print("使用 `hz-agent evolution list` 查看所有经验")
+        return
+
+    # 显示详细信息
+    console.print(f"[bold]经验详情: {experience.id}[/bold]\n")
+
+    table = Table(show_header=False)
+    table.add_column("字段", style="bold")
+    table.add_column("值")
+
+    table.add_row("任务类型", experience.task_type)
+    table.add_row("结果", "[green]成功[/]" if experience.result == "success" else "[red]失败[/]")
+    table.add_row("耗时", f"{experience.duration:.1f}s" if experience.duration else "-")
+    table.add_row("任务描述", experience.task)
+    table.add_row("策略", experience.strategy or "-")
+    table.add_row("使用工具", ", ".join(experience.tools_used) if experience.tools_used else "-")
+
+    console.print(table)
+
+    if experience.issues:
+        console.print("\n[bold yellow]问题:[/]")
+        for issue in experience.issues:
+            console.print(f"  - {issue}")
+
+    if experience.lessons:
+        console.print("\n[bold green]经验教训:[/]")
+        for lesson in experience.lessons:
+            console.print(f"  - {lesson}")
+
+
+@evolution.command("clear")
+@click.option("--path", default=".evolution_memory", help="Evolution memory directory path")
+@click.option("--confirm", is_flag=True, help="Skip confirmation")
+def evolution_clear(path: str, confirm: bool):
+    """清空所有进化记忆。"""
+    memory_path = Path(path)
+    if not memory_path.exists():
+        console.print(f"[yellow]进化记忆目录不存在:[/] {path}")
+        return
+
+    files = list(memory_path.glob("*.json"))
+    if not files:
+        console.print("[yellow]没有进化记忆需要清理。[/]")
+        return
+
+    if not confirm:
+        console.print(f"[bold yellow]即将删除 {len(files)} 个经验文件[/]")
+        if not click.confirm("确认删除？"):
+            console.print("已取消。")
+            return
+
+    for f in files:
+        f.unlink()
+
+    console.print(f"[green]已删除 {len(files)} 个经验文件。[/]")
+
+
+@evolution.command("similar")
+@click.argument("query")
+@click.option("--path", default=".evolution_memory", help="Evolution memory directory path")
+@click.option("--limit", default=5, help="Max results")
+def evolution_similar(query: str, path: str, limit: int):
+    """搜索相似任务经验。"""
+    from .evolution_memory.store import ExperienceStore
+
+    store = ExperienceStore(store_path=path)
+    similar = store.get_similar_experiences(task=query, limit=limit)
+
+    if not similar:
+        console.print(f"[yellow]未找到与 '{query}' 相似的经验。[/]")
+        return
+
+    table = Table(title=f"相似经验: '{query}'")
+    table.add_column("ID", style="dim")
+    table.add_column("类型", style="bold")
+    table.add_column("结果")
+    table.add_column("任务描述")
+
+    for exp in similar:
+        result_icon = "[green]✓[/]" if exp.result == "success" else "[red]✗[/]"
+        task_preview = exp.task[:60] + "..." if len(exp.task) > 60 else exp.task
+        table.add_row(exp.id, exp.task_type, result_icon, task_preview)
+
+    console.print(table)
 
 
 # ============================================================
