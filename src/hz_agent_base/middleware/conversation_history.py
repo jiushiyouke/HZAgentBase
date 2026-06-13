@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import HumanMessage
@@ -69,7 +69,7 @@ class ConversationHistoryMiddleware(AgentMiddleware):
         self.model = model
 
     def wrap_model_call(self, request, handler) -> Any:
-        """在模型调用前管理对话历史。"""
+        """在模型调用前管理对话历史（同步版本）。"""
         messages = list(request.messages or [])
         if not messages:
             return handler(request)
@@ -96,6 +96,39 @@ class ConversationHistoryMiddleware(AgentMiddleware):
             )
 
         return handler(request.override(messages=messages))
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """在模型调用前管理对话历史（异步版本）。"""
+        messages = list(request.messages or [])
+        if not messages:
+            return await handler(request)
+
+        original_count = len(messages)
+        original_tokens = sum(estimate_message_tokens(m) for m in messages)
+
+        if self.strategy == "truncate":
+            messages = self._truncate(messages)
+        elif self.strategy == "sliding_window":
+            messages = self._sliding_window(messages)
+        elif self.strategy == "summary":
+            messages = self._summarize(messages, request)
+
+        # 记录裁剪情况
+        new_count = len(messages)
+        new_tokens = sum(estimate_message_tokens(m) for m in messages)
+        if new_count < original_count or new_tokens < original_tokens:
+            logger.info(
+                "Conversation history managed: %d msgs (%d tokens) -> %d msgs (%d tokens) [%s]",
+                original_count, original_tokens,
+                new_count, new_tokens,
+                self.strategy,
+            )
+
+        return await handler(request.override(messages=messages))
 
     def _extract_system_message(self, messages: list) -> tuple[Any | None, list]:
         """分离 system message 和其他消息。"""
