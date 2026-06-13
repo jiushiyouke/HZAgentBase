@@ -62,6 +62,24 @@ class FileAuditMiddleware(AgentMiddleware):
         if not file_tool_names and not self.track_changes:
             return handler(request)
 
+    async def awrap_model_call(self, request, handler: Callable[[Any], Awaitable[Any]]) -> Any:
+        """（异步版本）在模型调用前后记录文件操作。"""（异步版本）
+        tools = request.tools or []
+        thread_id = getattr(request.state, "thread_id", "") if hasattr(request, "state") else ""
+
+        # 识别文件操作工具
+        file_tool_names = set()
+        for tool in tools:
+            name = getattr(tool, "name", None) or (
+                tool.get("name", "") if isinstance(tool, dict) else str(tool)
+            )
+            if name in FILE_TOOLS:
+                file_tool_names.add(name)
+
+        # 如果没有文件操作工具，直接透传
+        if not file_tool_names and not self.track_changes:
+            return await handler(request)
+
         # 调用模型
         response = handler(request)
 

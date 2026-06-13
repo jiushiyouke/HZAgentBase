@@ -66,6 +66,19 @@ class KnowledgeMiddleware(AgentMiddleware):
         if not query:
             return handler(request)
 
+    async def awrap_model_call(self, request, handler: Callable[[Any], Awaitable[Any]]) -> Any:
+        """（异步版本）检索知识库并注入上下文。"""（异步版本）
+        # 提取用户最新消息作为查询
+        messages = request.messages or []
+        query = ""
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if content and getattr(msg, "type", "") == "human":
+                query = content if isinstance(content, str) else str(content)
+
+        if not query:
+            return await handler(request)
+
         # 从知识库检索（支持按用户过滤）
         try:
             user_id = self._get_user_id(request)

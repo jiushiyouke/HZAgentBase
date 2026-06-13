@@ -6,7 +6,7 @@ FULL_AUTO 模式下跳过过滤。
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -40,6 +40,31 @@ class PermissionMiddleware(AgentMiddleware):
         # 用过滤后的工具列表创建新请求
         filtered_request = request.override(tools=allowed_tools)
         return handler(filtered_request)
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """在模型调用前过滤工具列表（异步版本）。"""
+        from ..permissions.settings import PermissionMode
+
+        # FULL_AUTO 模式：不过滤，全部放行
+        if self.checker.settings.mode == PermissionMode.FULL_AUTO:
+            return await handler(request)
+
+        # 按白名单/黑名单过滤工具
+        allowed_tools = []
+        for tool in request.tools:
+            tool_name = getattr(tool, "name", None) or (
+                tool.get("name", "") if isinstance(tool, dict) else str(tool)
+            )
+            if self.checker.is_tool_allowed(tool_name):
+                allowed_tools.append(tool)
+
+        # 用过滤后的工具列表创建新请求
+        filtered_request = request.override(tools=allowed_tools)
+        return await handler(filtered_request)
 
     def wrap_tool_call(self, request, handler) -> Any:
         """在工具执行前检查路径规则和命令黑名单。"""
