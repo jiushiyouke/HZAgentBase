@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
@@ -122,3 +122,32 @@ class HumanApprovalMiddleware(AgentMiddleware):
         except Exception as e:
             logger.error("Approval request failed: %s", e)
             return self.default_approve
+
+    async def awrap_tool_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """工具执行前检查是否需要审批（异步版本）。"""
+        tool_call = request.tool_call
+        tool_name = self._get_tool_name(tool_call)
+        args = self._get_tool_args(tool_call)
+
+        # 检查是否需要审批
+        matched_rule = self._find_matching_rule(tool_name, args)
+        if matched_rule:
+            try:
+                approved = self._request_approval(tool_name, args, matched_rule)
+            except Exception as e:
+                logger.error("Approval request failed: %s", e)
+                approved = self.default_approve
+
+            if not approved:
+                tool_call_id = self._get_tool_call_id(tool_call)
+                logger.info("Tool call rejected by user: %s", tool_name)
+                return ToolMessage(
+                    content="操作被用户拒绝。",
+                    tool_call_id=tool_call_id,
+                )
+
+        return await handler(request)

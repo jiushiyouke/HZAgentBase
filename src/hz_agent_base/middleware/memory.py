@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,51 @@ class MemoryMiddleware(AgentMiddleware):
 
         # 无相关记忆时直接调用模型
         response = handler(request)
+
+        # 对话结束后提取新记忆（best-effort，不阻断主流程）
+        try:
+            manager.extract_and_save(messages, response)
+        except Exception as e:
+            logger.warning("Memory extraction failed: %s", e)
+
+        return response
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """注入记忆 → 调用模型 → 提取新记忆（异步版本）。"""
+        # 提取最新的用户消息作为搜索查询
+        messages = request.messages or []
+        query = ""
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if content and getattr(msg, "type", "") == "human":
+                query = content if isinstance(content, str) else str(content)
+
+        manager = self._get_manager(request)
+        memory_path = self._get_memory_path(request)
+
+        # 搜索相关记忆并注入系统提示词
+        if query:
+            memories = select_relevant_memories(query, memory_path, max_results=5)
+            if memories:
+                memory_context = format_relevant_memories(memories)
+                current_system = request.system_prompt or ""
+                new_request = request.override(
+                    system_prompt=f"{current_system}\n\n## Relevant Memories\n{memory_context}"
+                )
+                response = await handler(new_request)
+                # 对话结束后提取新记忆（best-effort，不阻断主流程）
+                try:
+                    manager.extract_and_save(messages, response)
+                except Exception as e:
+                    logger.warning("Memory extraction failed: %s", e)
+                return response
+
+        # 无相关记忆时直接调用模型
+        response = await handler(request)
 
         # 对话结束后提取新记忆（best-effort，不阻断主流程）
         try:

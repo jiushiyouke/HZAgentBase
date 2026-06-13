@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Callable, Awaitable, Sequence
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -58,6 +58,42 @@ class GuardrailsMiddleware(AgentMiddleware):
     def wrap_model_call(self, request, handler) -> Any:
         """调用模型后验证输出。"""
         response = handler(request)
+        messages = response.get("messages", []) if isinstance(response, dict) else []
+
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if not content or not isinstance(content, str):
+                continue
+
+            # 内容审核
+            if self.content_moderator:
+                if not self._check_content_safety(content):
+                    if self.block_on_failure:
+                        msg.content = self.fallback_message
+                    continue
+
+            # 事实检查
+            if self.fact_checker:
+                if not self._check_fact_accuracy(content, request.messages):
+                    if self.block_on_failure:
+                        msg.content = "检测到可能的不准确信息，请核实。"
+                    continue
+
+            # 格式校验
+            if self.output_validator:
+                if not self._check_output_format(content):
+                    if self.block_on_failure:
+                        msg.content = "输出格式不符合要求，请重新生成。"
+
+        return response
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """调用模型后验证输出（异步版本）。"""
+        response = await handler(request)
         messages = response.get("messages", []) if isinstance(response, dict) else []
 
         for msg in messages:

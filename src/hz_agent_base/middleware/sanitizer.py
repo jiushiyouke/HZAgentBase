@@ -25,7 +25,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -124,6 +124,24 @@ class OutputSanitizerMiddleware(AgentMiddleware):
     def wrap_model_call(self, request, handler) -> Any:
         """调用模型后清洗输出。"""
         response = handler(request)
+
+        messages = response.get("messages", []) if isinstance(response, dict) else []
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if content and isinstance(content, str):
+                cleaned = self._sanitize(content, request)
+                if cleaned != content:
+                    msg.content = cleaned
+
+        return response
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """调用模型后清洗输出（异步版本）。"""
+        response = await handler(request)
 
         messages = response.get("messages", []) if isinstance(response, dict) else []
         for msg in messages:

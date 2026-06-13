@@ -21,10 +21,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import HumanMessage
@@ -287,3 +288,99 @@ class EvolutionMemoryMiddleware(AgentMiddleware):
         lines.append("请重新回答，确保满足以上要求。")
 
         return "\n".join(lines)
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """模型调用前注入经验，调用后评估并存储（异步版本）。"""
+        # 提取当前任务
+        self._current_task = self._extract_task(request.messages)
+
+        # 自动分类任务类型
+        task_type = "general"
+        if self.auto_classify and self._current_task:
+            task_type = classify_task(self._current_task)
+
+        # 注入历史经验
+        if self.inject_experience and self._current_task:
+            request = self._inject_experience(request, task_type)
+
+        # 记录开始时间
+        self._start_time = time.time()
+
+        # 调用模型（带重试）
+        response = await self._acall_with_retry(request, handler)
+
+        # 计算耗时
+        duration = time.time() - self._start_time
+
+        # 评估并存储经验
+        if self.auto_evaluate and self._current_task:
+            self._evaluate_and_store(
+                task=self._current_task,
+                task_type=task_type,
+                messages=request.messages,
+                response=response,
+                duration=duration,
+            )
+
+        return response
+
+    async def _acall_with_retry(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """调用模型，质量不达标时重试（异步版本）。"""
+        for attempt in range(self.max_attempts):
+            # 调用模型
+            response = await handler(request)
+            messages = response.get("messages", []) if isinstance(response, dict) else []
+
+            if not messages:
+                return response
+
+            # 提取回答
+            last_message = messages[-1]
+            answer = getattr(last_message, "content", "")
+
+            if not answer:
+                return response
+
+            # 评估质量
+            result = self.reflection_evaluator.evaluate(self._current_task, answer)
+
+            # 质量达标，直接返回
+            if result.passed:
+                logger.info(
+                    "Quality check passed (attempt %d/%d): %.2f >= %.2f",
+                    attempt + 1, self.max_attempts,
+                    result.overall, self.quality_threshold,
+                )
+                return response
+
+            # 质量不达标，要求改进
+            if attempt < self.max_attempts - 1:
+                feedback = self._build_feedback(result)
+                logger.info(
+                    "Quality check failed (attempt %d/%d): %.2f < %.2f",
+                    attempt + 1, self.max_attempts,
+                    result.overall, self.quality_threshold,
+                )
+                # 添加反馈让 Agent 改进
+                request = request.override(
+                    messages=[
+                        *request.messages,
+                        last_message,
+                        HumanMessage(content=feedback),
+                    ]
+                )
+
+        # 达到最大重试次数
+        logger.warning(
+            "Max attempts reached (%d), returning last response",
+            self.max_attempts,
+        )
+        return response

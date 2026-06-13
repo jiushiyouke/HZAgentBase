@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Callable, Awaitable, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +66,6 @@ class KnowledgeMiddleware(AgentMiddleware):
         if not query:
             return handler(request)
 
-    async def awrap_model_call(self, request, handler: Callable[[Any], Awaitable[Any]]) -> Any:
-        """（异步版本）检索知识库并注入上下文。"""（异步版本）
-        # 提取用户最新消息作为查询
-        messages = request.messages or []
-        query = ""
-        for msg in messages:
-            content = getattr(msg, "content", None)
-            if content and getattr(msg, "type", "") == "human":
-                query = content if isinstance(content, str) else str(content)
-
-        if not query:
-            return await handler(request)
-
         # 从知识库检索（支持按用户过滤）
         try:
             user_id = self._get_user_id(request)
@@ -104,6 +91,49 @@ class KnowledgeMiddleware(AgentMiddleware):
             system_prompt=f"{current_system}\n\n## Knowledge Base\n{context}"
         )
         return handler(new_request)
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """检索知识库并注入上下文（异步版本）。"""
+        # 提取用户最新消息作为查询
+        messages = request.messages or []
+        query = ""
+        for msg in messages:
+            content = getattr(msg, "content", None)
+            if content and getattr(msg, "type", "") == "human":
+                query = content if isinstance(content, str) else str(content)
+
+        if not query:
+            return await handler(request)
+
+        # 从知识库检索（支持按用户过滤）
+        try:
+            user_id = self._get_user_id(request)
+            if user_id and hasattr(self.retriever, "retrieve_for_user"):
+                # retriever 支持按用户过滤
+                results = self.retriever.retrieve_for_user(query, top_k=self.top_k, user_id=user_id)
+            else:
+                results = self.retriever.retrieve(query, top_k=self.top_k)
+        except Exception as e:
+            # 检索失败不应阻断模型调用
+            logger.warning("Knowledge retrieval failed, skipping: %s", e)
+            return await handler(request)
+
+        if not results:
+            return await handler(request)
+
+        # 格式化检索结果
+        context = _format_results(results)
+
+        # 注入系统提示词
+        current_system = request.system_prompt or ""
+        new_request = request.override(
+            system_prompt=f"{current_system}\n\n## Knowledge Base\n{context}"
+        )
+        return await handler(new_request)
 
 
 def _format_results(results: Sequence[RetrievalResult]) -> str:

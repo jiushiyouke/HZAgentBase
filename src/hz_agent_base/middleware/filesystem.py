@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -62,8 +62,12 @@ class FileAuditMiddleware(AgentMiddleware):
         if not file_tool_names and not self.track_changes:
             return handler(request)
 
-    async def awrap_model_call(self, request, handler: Callable[[Any], Awaitable[Any]]) -> Any:
-        """（异步版本）在模型调用前后记录文件操作。"""（异步版本）
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """在模型调用前后记录文件操作（异步版本）。"""
         tools = request.tools or []
         thread_id = getattr(request.state, "thread_id", "") if hasattr(request, "state") else ""
 
@@ -81,7 +85,7 @@ class FileAuditMiddleware(AgentMiddleware):
             return await handler(request)
 
         # 调用模型
-        response = handler(request)
+        response = await handler(request)
 
         # 从响应中提取工具执行结果并记录
         if self.audit:

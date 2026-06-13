@@ -9,9 +9,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware.types import AgentMiddleware
 
@@ -101,6 +102,74 @@ class ResilientMiddleware(AgentMiddleware):
                         attempt + 1, self.max_retries + 1, delay, e,
                     )
                     time.sleep(delay)
+                else:
+                    logger.error(
+                        "LLM call failed after %d attempts: %s",
+                        self.max_retries + 1, e,
+                    )
+
+        # 全部重试失败，返回友好错误
+        from langchain_core.messages import AIMessage
+        return {
+            "messages": [AIMessage(
+                content=f"模型暂时不可用（已重试 {self.max_retries} 次），请稍后重试。"
+            )],
+        }
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        """容错的模型调用：取消检查 → 终止检查 → 重试调用 → 终止检查（异步版本）。"""
+        thread_id = self._get_thread_id(request)
+
+        # 1. 检查取消信号
+        if self.cancellation_checker and thread_id:
+            try:
+                if self.cancellation_checker.is_cancelled(thread_id):
+                    from langchain_core.messages import AIMessage
+                    return {"messages": [AIMessage(content="请求已被取消。")]}
+            except Exception as e:
+                logger.warning("Cancellation check failed: %s", e)
+
+        # 2. 检查终止条件（调用前）
+        if self.stop_condition:
+            try:
+                messages = request.messages or []
+                if self.stop_condition.should_stop(messages):
+                    from langchain_core.messages import AIMessage
+                    return {"messages": [AIMessage(content="已满足终止条件。")]}
+            except Exception as e:
+                logger.warning("Stop condition check failed: %s", e)
+
+        # 3. 调用模型（带重试）
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await handler(request)
+
+                # 4. 调用成功后检查终止条件
+                if self.stop_condition:
+                    try:
+                        resp_messages = response.get("messages", []) if isinstance(response, dict) else []
+                        all_messages = list(request.messages or []) + list(resp_messages)
+                        if self.stop_condition.should_stop(all_messages):
+                            return response  # 满足条件，直接返回，不继续下一轮
+                    except Exception as e:
+                        logger.warning("Stop condition check failed: %s", e)
+
+                return response
+
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    delay = self.retry_base_delay * (2 ** attempt)
+                    logger.warning(
+                        "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt + 1, self.max_retries + 1, delay, e,
+                    )
+                    await asyncio.sleep(delay)
                 else:
                     logger.error(
                         "LLM call failed after %d attempts: %s",
