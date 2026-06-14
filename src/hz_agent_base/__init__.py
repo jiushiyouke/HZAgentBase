@@ -23,7 +23,7 @@ from .backends import StateBackend, StoreBackend
 from .resilience import CancellationChecker, StopCondition
 from .middleware import ResilientMiddleware
 
-__version__ = "0.5.7"
+__version__ = "0.5.8"
 
 __all__ = [
     "create_agent",

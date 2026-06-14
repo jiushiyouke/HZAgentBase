@@ -60,6 +60,7 @@ def _get_model(
     *,
     api_key: str | None = None,
     base_url: str | None = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     """Resolve model string to a LangChain chat model instance.
 
@@ -76,6 +77,11 @@ def _get_model(
         model: Model name string or a pre-configured model instance.
         api_key: API key override. If None, uses MODEL_API_KEY from config.
         base_url: Base URL override. If None, uses MODEL_BASE_URL from config.
+        model_kwargs: 额外的模型参数，传递给底层模型类。
+            - DeepSeek: temperature, reasoning_effort, reasoning, top_p, max_tokens 等
+            - OpenAI: temperature, top_p, max_tokens, presence_penalty 等
+            - Anthropic: temperature, top_k, top_p, max_tokens 等
+            - Gemini: temperature, top_p, top_k, max_output_tokens 等
 
     Returns:
         A LangChain chat model instance.
@@ -94,6 +100,7 @@ def _get_model(
     resolved_key = api_key or MODEL_API_KEY
     resolved_base = base_url or MODEL_BASE_URL
     timeout = MODEL_REQUEST_TIMEOUT
+    extra_kwargs = model_kwargs or {}
 
     model_lower = model.lower()
 
@@ -104,6 +111,7 @@ def _get_model(
             return ChatAnthropic(
                 model=model, api_key=resolved_key,
                 timeout=timeout,
+                **extra_kwargs,
             )
         except ImportError:
             raise ImportError(
@@ -118,6 +126,7 @@ def _get_model(
             return ChatGoogleGenerativeAI(
                 model=model, google_api_key=resolved_key,
                 timeout=timeout,
+                **extra_kwargs,
             )
         except ImportError:
             raise ImportError(
@@ -133,12 +142,14 @@ def _get_model(
             return ChatDeepSeek(
                 model=model, api_key=resolved_key, base_url=effective_url,
                 timeout=timeout,
+                **extra_kwargs,
             )
         except ImportError:
             # 降级到 ChatOpenAI（不支持 reasoning_content）
             return ChatOpenAI(
                 model=model, api_key=resolved_key, base_url=effective_url,
                 request_timeout=timeout,
+                **extra_kwargs,
             )
 
     # 以下均为 OpenAI 兼容 API（OpenAI、Ollama 等）
@@ -151,6 +162,7 @@ def _get_model(
         "model": model,
         "api_key": resolved_key,
         "request_timeout": timeout,
+        **extra_kwargs,
     }
     if resolved_base:
         kwargs["base_url"] = resolved_base
@@ -180,6 +192,7 @@ def create_agent(
     max_retries: int = MODEL_MAX_RETRIES,
     api_key: str | None = None,
     base_url: str | None = None,
+    model_kwargs: dict[str, Any] | None = None,
     **kwargs,
 ) -> CompiledStateGraph:
     """Create an agent with HZAgentBase harness.
@@ -210,6 +223,11 @@ def create_agent(
         backend: Filesystem/sandbox backend.
         api_key: API key override for multi-tenant. If None, uses MODEL_API_KEY from .env.
         base_url: Base URL override for multi-tenant. If None, uses MODEL_BASE_URL from .env.
+        model_kwargs: 额外的模型参数，传递给底层模型类。
+            - DeepSeek: temperature, reasoning_effort, reasoning, top_p, max_tokens 等
+            - OpenAI: temperature, top_p, max_tokens, presence_penalty 等
+            - Anthropic: temperature, top_k, top_p, max_tokens 等
+            - Gemini: temperature, top_p, top_k, max_output_tokens 等
         **kwargs: Additional arguments passed to create_deep_agent().
 
     Returns:
@@ -220,7 +238,7 @@ def create_agent(
     resolved_prompt = load_prompt(system_prompt, shared_rules=rules)
 
     # 提前解析 model，供 HookMiddleware 使用（PromptHook / AgentHook 需要 LLM）
-    resolved_model = _get_model(model, api_key=api_key, base_url=base_url)
+    resolved_model = _get_model(model, api_key=api_key, base_url=base_url, model_kwargs=model_kwargs)
 
     # 中间件管道：(优先级, middleware) 元组，数字越小越先执行
     pipeline: list[tuple[int, AgentMiddleware]] = []
