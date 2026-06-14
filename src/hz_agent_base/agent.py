@@ -12,16 +12,21 @@ from langchain_openai import ChatOpenAI
 
 from .config import (
     DEFAULT_MODEL, MODEL_API_KEY, MODEL_BASE_URL,
-    AUDIT_LOG_PATH, KNOWLEDGE_TOP_K,
+    AUDIT_LOG_PATH, KNOWLEDGE_TOP_K, MEMORY_PATH,
     MODEL_REQUEST_TIMEOUT, MODEL_MAX_RETRIES, RECURSION_LIMIT,
 )
 from .middleware import AgentMiddleware
 from .utils.constants import (
     DEFAULT as MW_DEFAULT,
     PERMISSION as MW_PERMISSION,
+    HUMAN_APPROVAL as MW_HUMAN_APPROVAL,
     HOOKS as MW_HOOKS,
     MEMORY as MW_MEMORY,
+    AGENT_MEMORY as MW_AGENT_MEMORY,
     KNOWLEDGE as MW_KNOWLEDGE,
+    CONVERSATION_HISTORY as MW_CONVERSATION_HISTORY,
+    GUARDRAILS as MW_GUARDRAILS,
+    SANITIZER as MW_SANITIZER,
     AUDIT as MW_AUDIT,
     RESILIENT as MW_RESILIENT,
     COORDINATOR as MW_COORDINATOR,
@@ -31,6 +36,11 @@ from .middleware.hook import HookMiddleware
 from .middleware.memory import MemoryMiddleware
 from .middleware.knowledge import KnowledgeMiddleware
 from .middleware.filesystem import FileAuditMiddleware
+from .middleware.conversation_history import ConversationHistoryMiddleware
+from .middleware.evolution_memory import EvolutionMemoryMiddleware
+from .middleware.human_approval import HumanApprovalMiddleware
+from .middleware.sanitizer import OutputSanitizerMiddleware
+from .middleware.guardrails import GuardrailsMiddleware
 from .resilience.protocols import CancellationChecker, StopCondition
 from .middleware.resilient import ResilientMiddleware
 from .knowledge.protocol import Retriever
@@ -39,6 +49,7 @@ from .coordinator.coordinator import CoordinatorMiddleware
 from .prompts.manager import load_prompt
 from .permissions import PermissionSettings
 from .hooks import HookRegistry
+from .human_approval import ApprovalRule
 
 # 各提供商的默认 API 地址（MODEL_BASE_URL 未设置时使用）
 _PROVIDER_DEFAULT_URLS = {
@@ -178,11 +189,16 @@ def create_agent(
     rules: list[str] | None = None,
     permissions: PermissionSettings | None = None,
     hooks: HookRegistry | None = None,
-    memory_path: str | None = None,
+    memory_path: str | bool | None = None,
     memory_isolate_by_user: bool = True,
     retriever: Retriever | None = None,
     knowledge_top_k: int = KNOWLEDGE_TOP_K,
     filesystem: bool | dict[str, Any] = False,
+    conversation_history: bool | dict[str, Any] = False,
+    evolution_memory: bool | dict[str, Any] = False,
+    human_approval_rules: bool | list[ApprovalRule] | None = None,
+    sanitizer: bool | dict[str, Any] = False,
+    guardrails: bool | dict[str, Any] = False,
     workers: list[WorkerConfig] | None = None,
     middleware: Sequence[AgentMiddleware | tuple[AgentMiddleware, int]] | None = None,
     backend: BackendProtocol | None = None,
@@ -216,6 +232,26 @@ def create_agent(
         filesystem: Enable file operation audit and change tracking.
                     - True: enable with defaults (audit=True, track_changes=True)
                     - dict: pass options (audit, track_changes, workspace, log_path)
+                    - False: disabled (default)
+        conversation_history: 对话历史管理，防止 token 超限。
+                    - True: enable with defaults (strategy="sliding_window", max_tokens=16000)
+                    - dict: pass options (strategy, max_messages, max_tokens, keep_system)
+                    - False: disabled (default)
+        evolution_memory: 进化记忆 + 自我反思，从任务中学习。
+                    - True: enable with defaults (memory_path=".evolution_memory/")
+                    - dict: pass options (memory_path, retrieval_top_k, max_attempts, quality_threshold)
+                    - False: disabled (default)
+        human_approval_rules: 人工审批规则，危险操作需人工确认。
+                    - True: enable with defaults (bash, delete_file, write_file 等危险操作)
+                    - list[ApprovalRule]: 自定义审批规则列表
+                    - None/False: disabled (default)
+        sanitizer: 输出清洗，PII 过滤、敏感词、prompt 泄露检测。
+                    - True: enable with defaults (mask_pii=True, detect_prompt_leak=True)
+                    - dict: pass options (mask_pii, sensitive_words, detect_prompt_leak)
+                    - False: disabled (default)
+        guardrails: 内容护栏，内容审核、事实检查、格式校验。
+                    - True: enable with defaults (block_on_failure=True)
+                    - dict: pass options (content_moderator, fact_checker, output_validator)
                     - False: disabled (default)
         workers: Worker agent configs for multi-agent orchestration.
                  Creates a Coordinator with sub-agents.
@@ -253,8 +289,10 @@ def create_agent(
         pipeline.append((MW_HOOKS, HookMiddleware(hooks, model=resolved_model)))
 
     # 3. Memory middleware (inject/extract persistent knowledge)
-    if memory_path is not None:
-        pipeline.append((MW_MEMORY, MemoryMiddleware(memory_path, isolate_by_user=memory_isolate_by_user)))
+    if memory_path is True:
+        memory_path = MEMORY_PATH  # 使用默认路径
+    if memory_path:
+        pipeline.append((MW_MEMORY, MemoryMiddleware(str(memory_path), isolate_by_user=memory_isolate_by_user)))
 
     # 4. Knowledge middleware (RAG retrieval from knowledge base)
     if retriever is not None:
@@ -267,6 +305,44 @@ def create_agent(
             fs_opts = {k: v for k, v in filesystem.items() if k != "audit"}
             default_fs_opts.update(fs_opts)
         pipeline.append((MW_AUDIT, FileAuditMiddleware(**default_fs_opts)))
+
+    # 5.1 Conversation history middleware (prevent token overflow)
+    if conversation_history:
+        default_ch_opts: dict[str, Any] = {}
+        if isinstance(conversation_history, dict):
+            default_ch_opts.update(conversation_history)
+        pipeline.append((MW_CONVERSATION_HISTORY, ConversationHistoryMiddleware(**default_ch_opts)))
+
+    # 5.2 Evolution memory middleware (learn from tasks)
+    if evolution_memory:
+        default_em_opts: dict[str, Any] = {}
+        if isinstance(evolution_memory, dict):
+            default_em_opts.update(evolution_memory)
+        pipeline.append((MW_AGENT_MEMORY, EvolutionMemoryMiddleware(**default_em_opts)))
+
+    # 5.3 Human approval middleware (dangerous operations need confirmation)
+    if human_approval_rules is True:
+        # 默认规则：bash、文件删除、写入等危险操作
+        human_approval_rules = [
+            ApprovalRule(tools=["bash", "execute_command"]),
+            ApprovalRule(tools=["delete_file", "write_file"]),
+        ]
+    if human_approval_rules:
+        pipeline.append((MW_HUMAN_APPROVAL, HumanApprovalMiddleware(rules=human_approval_rules)))
+
+    # 5.4 Sanitizer middleware (PII filtering, sensitive words)
+    if sanitizer:
+        default_san_opts: dict[str, Any] = {}
+        if isinstance(sanitizer, dict):
+            default_san_opts.update(sanitizer)
+        pipeline.append((MW_SANITIZER, OutputSanitizerMiddleware(**default_san_opts)))
+
+    # 5.5 Guardrails middleware (content moderation, fact checking)
+    if guardrails:
+        default_grd_opts: dict[str, Any] = {}
+        if isinstance(guardrails, dict):
+            default_grd_opts.update(guardrails)
+        pipeline.append((MW_GUARDRAILS, GuardrailsMiddleware(**default_grd_opts)))
 
     # 6. User-provided middleware（支持 (middleware, rank) 元组或直接传 middleware）
     if middleware:

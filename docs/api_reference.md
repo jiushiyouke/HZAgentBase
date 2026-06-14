@@ -16,17 +16,23 @@ agent = create_agent(
     rules=["./rules/"],
     permissions=PermissionSettings(...),
     hooks=HookRegistry(...),
-    memory_path=".memory/",
+    memory_path=True,  # 或 ".memory/"
     memory_isolate_by_user=True,
     retriever=my_retriever,
     knowledge_top_k=5,
     filesystem=True,
+    conversation_history=True,
+    evolution_memory=True,
+    human_approval_rules=True,
+    sanitizer=True,
+    guardrails=True,
     workers=[WorkerConfig(...)],
     middleware=[MyMiddleware()],
     backend=LocalBackend(),
     cancellation_checker=my_checker,
     stop_condition=my_condition,
     max_retries=2,
+    model_kwargs={"temperature": 0.7, "reasoning_effort": "high"},
 )
 ```
 
@@ -40,17 +46,16 @@ agent = create_agent(
 | `rules` | `list[str] \| None` | `None` | 共享规则目录列表。目录下 `.md` 文件自动加载，所有 agent 共享 |
 | `permissions` | `PermissionSettings \| None` | `None` | 权限配置。None 时使用 DEFAULT 模式 |
 | `hooks` | `HookRegistry \| None` | `None` | Hook 注册表 |
-| `memory_path` | `str \| None` | `None` | 记忆存储目录路径 |
+| `memory_path` | `str \| bool \| None` | `None` | 记忆存储路径。True 使用默认路径 `.memory` |
 | `memory_isolate_by_user` | `bool` | `True` | 记忆按用户隔离，每个用户独立记忆目录 |
 | `retriever` | `Retriever \| None` | `None` | 知识库检索器 |
 | `knowledge_top_k` | `int` | `5` | 每次检索 Top-K 条 |
-| `filesystem` | `bool \| dict` | `False` | 文件审计配置 |
-| `conversation_history` | `bool \| dict` | `False` | 对话历史管理配置 |
-| `sanitizer` | `bool \| dict` | `False` | 输出清洗配置 |
-| `guardrails` | `dict \| None` | `None` | 内容护栏配置 |
-| `human_approval_rules` | `list[ApprovalRule] \| None` | `None` | 人工审批规则列表 |
-| `human_approval_callback` | `ApprovalCallback \| None` | `None` | 人工审批回调 |
-| `evolution_memory` | `bool \| dict` | `False` | 进化记忆配置 |
+| `filesystem` | `bool \| dict` | `False` | 文件审计。True 使用默认配置 |
+| `conversation_history` | `bool \| dict` | `False` | 对话历史管理。True 使用默认配置 |
+| `evolution_memory` | `bool \| dict` | `False` | 进化记忆。True 使用默认配置 |
+| `human_approval_rules` | `bool \| list[ApprovalRule] \| None` | `None` | 人工审批。True 使用默认规则 |
+| `sanitizer` | `bool \| dict` | `False` | 输出清洗。True 使用默认配置 |
+| `guardrails` | `bool \| dict` | `False` | 内容护栏。True 使用默认配置 |
 | `workers` | `list[WorkerConfig] \| None` | `None` | Worker 配置列表 |
 | `middleware` | `Sequence[AgentMiddleware \| tuple] \| None` | `None` | 自定义中间件列表，支持 `(middleware, priority)` 元组 |
 | `backend` | `BackendProtocol \| None` | `None` | 文件系统/沙箱后端 |
@@ -59,6 +64,7 @@ agent = create_agent(
 | `max_retries` | `int` | `2` | LLM 调用失败时的最大重试次数（指数退避） |
 | `api_key` | `str \| None` | `None` | API Key 覆盖，多租户使用 |
 | `base_url` | `str \| None` | `None` | Base URL 覆盖，多租户使用 |
+| `model_kwargs` | `dict \| None` | `None` | 额外模型参数（temperature, reasoning_effort 等） |
 
 **返回值：** `CompiledStateGraph` — 线程安全的编译 Agent 实例。
 
@@ -155,6 +161,45 @@ async def chat(message: str):
         yield "data: [DONE]\n\n"
     return StreamingResponse(generate(), media_type="text/event-stream")
 ```
+
+---
+
+## 模型参数配置
+
+通过 `model_kwargs` 传递额外参数给底层模型类。
+
+```python
+from hz_agent_base import create_agent
+
+# DeepSeek 思考模式
+agent = create_agent(
+    model="deepseek-v4-pro",
+    model_kwargs={
+        "temperature": 0.1,
+        "reasoning_effort": "high",      # 思考深度
+        "reasoning": {"type": "enabled"}, # 启用思考模式
+    }
+)
+
+# OpenAI 参数
+agent = create_agent(
+    model="gpt-4",
+    model_kwargs={
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 4096,
+    }
+)
+```
+
+**各提供商支持的参数：**
+
+| 提供商 | 参数 |
+|--------|------|
+| DeepSeek | temperature, reasoning_effort, reasoning, top_p, max_tokens, presence_penalty, frequency_penalty, seed |
+| OpenAI | temperature, top_p, max_tokens, presence_penalty, frequency_penalty, seed, logprobs |
+| Anthropic | temperature, top_k, top_p, max_tokens, stop_sequences |
+| Gemini | temperature, top_p, top_k, max_output_tokens, stop_sequences |
 
 ---
 

@@ -23,6 +23,9 @@
 - **高并发优化** — 记忆 LRU+TTL 缓存、审计批量缓冲写入、Hook 全局线程池并行执行
 - **多用户隔离** — 基于 LangGraph thread_id 的状态隔离，同一 agent 实例可并发服务多个用户
 - **异步 & 流式** — `arun_agent()` 异步调用、`run_agent_stream()` / `arun_agent_stream()` 逐 token 流式输出
+- **全中间件异步支持** — 所有中间件均实现 `awrap_model_call` / `awrap_tool_call`，异步调用链完整
+- **模型参数透传** — `model_kwargs` 支持各提供商特有参数（temperature、reasoning_effort 等）
+- **便捷参数** — 一行代码启用功能模块（`memory_path=True`、`sanitizer=True` 等）
 - **多租户支持** — `api_key` / `base_url` 参数支持不同用户使用不同 API 配置
 - **中间件优先级** — 自定义中间件可指定执行位置（BEFORE_ALL / AFTER_ALL 等）
 - **可插拔后端** — 由 Deep Agents 提供，支持本地 / 沙箱 / 远程执行环境
@@ -143,6 +146,54 @@ agent_c = create_agent(model=ChatOpenAI(model="gpt-4", api_key="sk-ccc..."))
 
 参数优先级：`api_key`/`base_url` 参数 > `.env` 全局配置 > 提供商默认值。
 
+## 模型参数配置
+
+通过 `model_kwargs` 传递额外参数给底层模型类，支持各提供商的特有参数：
+
+```python
+from hz_agent_base import create_agent
+
+# DeepSeek 思考模式
+agent = create_agent(
+    model="deepseek-v4-pro",
+    model_kwargs={
+        "temperature": 0.1,
+        "reasoning_effort": "high",      # 思考深度：high / medium / low
+        "reasoning": {"type": "enabled"}, # 启用思考模式
+    }
+)
+
+# OpenAI 参数
+agent = create_agent(
+    model="gpt-4",
+    model_kwargs={
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 4096,
+        "presence_penalty": 0.1,
+    }
+)
+
+# Anthropic 参数
+agent = create_agent(
+    model="claude-3-opus",
+    model_kwargs={
+        "temperature": 0.5,
+        "top_k": 40,
+        "max_tokens": 8192,
+    }
+)
+```
+
+各提供商支持的参数：
+
+| 提供商 | 常用参数 |
+|--------|----------|
+| DeepSeek | temperature, reasoning_effort, reasoning, top_p, max_tokens, presence_penalty, frequency_penalty, seed |
+| OpenAI | temperature, top_p, max_tokens, presence_penalty, frequency_penalty, seed, logprobs |
+| Anthropic | temperature, top_k, top_p, max_tokens, stop_sequences |
+| Gemini | temperature, top_p, top_k, max_output_tokens, stop_sequences |
+
 ## 中间件管道
 
 `create_agent()` 使用优先级排序机制组装中间件管道。每个中间件可拦截和修改模型请求，数字越小越先执行：
@@ -173,15 +224,30 @@ agent_c = create_agent(model=ChatOpenAI(model="gpt-4", api_key="sk-ccc..."))
 | Permission | 5 | 开启 | 无需额外参数，可通过 `permissions` 自定义 |
 | Hook | 10 | 关闭 | `hooks=HookRegistry(...)` |
 | ConversationHistory | 28 | 关闭 | `conversation_history=True` 或 `conversation_history={...}` |
-| Memory | 20 | 关闭 | `memory_path=".memory/"` |
+| Memory | 20 | 关闭 | `memory_path=True`（默认路径）或 `memory_path=".memory/"` |
 | Knowledge | 25 | 关闭 | `retriever=your_retriever` |
-| HumanApproval | 8 | 关闭 | `human_approval_rules=[ApprovalRule(...)]` |
+| HumanApproval | 8 | 关闭 | `human_approval_rules=True`（默认规则）或 `human_approval_rules=[...]` |
 | EvolutionMemory | 22 | 关闭 | `evolution_memory=True` 或 `evolution_memory={...}` |
 | Filesystem | 35 | 关闭 | `filesystem=True` 或 `filesystem={...}` |
 | Sanitizer | 33 | 关闭 | `sanitizer=True` 或 `sanitizer={...}` |
-| Guardrails | 32 | 关闭 | `guardrails={...}` |
+| Guardrails | 32 | 关闭 | `guardrails=True` 或 `guardrails={...}` |
 | Resilient | 40 | 开启 | `max_retries=2`，可选 `cancellation_checker`、`stop_condition` |
 | Coordinator | 50 | 关闭 | `workers=[WorkerConfig(...)]` |
+
+**一行代码启用所有功能：**
+
+```python
+agent = create_agent(
+    model="deepseek-v4-flash",
+    memory_path=True,              # 记忆系统
+    conversation_history=True,     # 对话历史管理
+    evolution_memory=True,         # 进化记忆
+    human_approval_rules=True,     # 人工审批
+    sanitizer=True,                # 输出清洗
+    guardrails=True,               # 内容护栏
+    filesystem=True,               # 文件审计
+)
+```
 
 **自定义中间件可插入任意位置：**
 
@@ -244,6 +310,10 @@ agent = create_agent(hooks=registry)
 ```python
 from hz_agent_base import create_agent
 
+# 使用默认路径 .memory
+agent = create_agent(memory_path=True)
+
+# 自定义路径
 agent = create_agent(memory_path=".memory/")
 ```
 
@@ -350,6 +420,9 @@ PII 脱敏效果：
 from hz_agent_base import create_agent
 from hz_agent_base.guardrails import ContentModerator, FactChecker, OutputValidator
 
+# 使用默认配置（block_on_failure=True）
+agent = create_agent(guardrails=True)
+
 # 自定义内容审核器
 class MyContentModerator(ContentModerator):
     def moderate(self, content: str) -> tuple[bool, list[str]]:
@@ -403,7 +476,10 @@ class MyValidator(OutputValidator):
 from hz_agent_base import create_agent
 from hz_agent_base.human_approval import ApprovalRule, ConsoleApprovalCallback
 
-# 定义审批规则
+# 使用默认规则（bash、delete_file、write_file 等危险操作）
+agent = create_agent(human_approval_rules=True)
+
+# 自定义审批规则
 rules = [
     # 匹配所有 bash 命令
     ApprovalRule(
@@ -777,17 +853,16 @@ hz-agent version
 | `rules` | `list[str] \| None` | 共享规则目录列表，所有 agent 共享 |
 | `permissions` | `PermissionSettings \| None` | 权限配置，默认 DEFAULT 模式 |
 | `hooks` | `HookRegistry \| None` | Hook 注册表 |
-| `memory_path` | `str \| None` | 记忆存储目录路径 |
+| `memory_path` | `str \| bool \| None` | 记忆存储路径，True 使用默认路径 `.memory` |
 | `memory_isolate_by_user` | `bool` | 记忆按用户隔离，默认 True |
 | `retriever` | `Retriever \| None` | 知识库检索器（实现 Retriever 协议） |
 | `knowledge_top_k` | `int` | 知识库每次检索条数，默认 5 |
-| `filesystem` | `bool \| dict` | 文件审计配置，False 为关闭 |
+| `filesystem` | `bool \| dict` | 文件审计，True 使用默认配置 |
 | `conversation_history` | `bool \| dict` | 对话历史管理，True 使用默认配置 |
+| `evolution_memory` | `bool \| dict` | 进化记忆，True 使用默认配置 |
+| `human_approval_rules` | `bool \| list[ApprovalRule] \| None` | 人工审批，True 使用默认规则 |
 | `sanitizer` | `bool \| dict` | 输出清洗，True 启用 PII/敏感词/泄露检测 |
-| `guardrails` | `dict \| None` | 内容护栏配置 |
-| `human_approval_rules` | `list[ApprovalRule] \| None` | 人工审批规则列表 |
-| `human_approval_callback` | `ApprovalCallback \| None` | 人工审批回调 |
-| `evolution_memory` | `bool \| dict` | 进化记忆配置，True 使用默认配置 |
+| `guardrails` | `bool \| dict` | 内容护栏，True 使用默认配置 |
 | `workers` | `list[WorkerConfig] \| None` | Worker 配置列表，启用多 Agent 编排 |
 | `middleware` | `Sequence[AgentMiddleware \| tuple] \| None` | 自定义中间件列表，支持 `(middleware, priority)` 元组 |
 | `backend` | `BackendProtocol \| None` | 文件系统/沙箱后端 |
@@ -797,6 +872,7 @@ hz-agent version
 | `max_retries` | `int` | LLM 调用失败重试次数，默认 2 |
 | `api_key` | `str \| None` | API Key 覆盖，多租户使用。None 时读 .env |
 | `base_url` | `str \| None` | Base URL 覆盖，多租户使用。None 时读 .env |
+| `model_kwargs` | `dict \| None` | 额外模型参数（temperature, reasoning_effort 等） |
 
 ## 项目结构
 
