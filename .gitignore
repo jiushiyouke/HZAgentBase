@@ -35,6 +35,7 @@ env/
 *~
 .project
 .settings/
+.codegraph/
 
 # Testing
 .pytest_cache/
