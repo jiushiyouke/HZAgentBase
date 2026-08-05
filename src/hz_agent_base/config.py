@@ -40,7 +40,7 @@ def load_config(env_path: str | Path | None = None) -> dict[str, str]:
 
     # Load .env file
     if env_path and Path(env_path).exists():
-        load_dotenv(env_path, override=True)
+        load_dotenv(env_path, override=False)
 
     return {
         # 模型配置
